@@ -122,3 +122,19 @@ Giao diện tự lấy token; token đổi khi khởi động app nên cần t�
 API client bên ngoài cũng cần lấy và gửi token. Đây là bảo vệ trước yêu cầu
 web chéo nguồn, không thay thế đăng nhập hoặc ngăn phần mềm độc hại trên máy.
 Ứng dụng vẫn chỉ dành cho sử dụng cá nhân trên loopback.
+
+## Hàng đợi và lưu trữ
+
+Trong một tiến trình app, nhiệm vụ mới và nhiệm vụ chạy lại dùng chung hàng
+đợi FIFO và một worker. Chỉ một nhiệm vụ được xử lý tại một thời điểm (cả ba
+bước); các nhiệm vụ khác giữ trạng thái Chờ. Không mở nhiều tiến trình app
+cùng dùng một cơ sở dữ liệu. Hàng đợi chưa giới hạn số việc chờ; khi đóng
+app, việc chờ/đang chạy được đánh dấu gián đoạn ở lần khởi động tiếp theo,
+không tự chạy lại. SQLite bật WAL và busy_timeout 30 giây để giảm tranh chấp
+đọc/ghi; vẫn cần sao lưu đúng cả dữ liệu WAL khi app đang mở.
+
+Bộ lọc suy nghĩ chỉ xử lý khối `<think>` ở đầu phản hồi. Với dữ liệu Qwen cũ
+thiếu thẻ mở, chỉ lọc khi có lời mở đầu suy nghĩ tiếng Anh được nhận diện và
+`</think>` nằm riêng một dòng. Thẻ được nhắc giữa câu hoặc trong khối mã được
+giữ nguyên. Đây là quy tắc nhận diện có giới hạn, chưa phân biệt hoàn hảo mọi
+trường hợp văn bản trích dẫn và suy nghĩ thiếu định dạng.

@@ -35,10 +35,10 @@ class WorkflowTest(unittest.TestCase):
 
     def test_retry_claims_once_and_clears_partial_output(self):
         app.update('test', status='failed', output='{"plan":"old"}')
-        with patch.object(app.threading, 'Thread') as worker:
+        with patch.object(app, 'enqueue_task') as worker:
             self.assertEqual(app.retry_task('test')[0], 202)
             self.assertEqual(app.retry_task('test')[0], 409)
-            worker.return_value.start.assert_called_once()
+            worker.assert_called_once()
         self.assertEqual(self.row()['output'], '{}')
         self.assertEqual(self.row()['status'], 'queued')
 
@@ -166,16 +166,16 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(parser.options, ['demo', 'ollama', 'ai'])
 
     def test_reasoning_is_removed_from_new_and_saved_results(self):
-        self.assertEqual(app.final_answer('English reasoning</think> Kết quả tiếng Việt'), 'Kết quả tiếng Việt')
+        self.assertEqual(app.final_answer('Okay, let me think.\n</think>\nKết quả tiếng Việt'), 'Kết quả tiếng Việt')
         self.assertEqual(app.final_answer('<think>English</think> Kết quả'), 'Kết quả')
         self.assertEqual(app.final_answer('<think>unfinished'), '')
         self.assertEqual(app.final_answer('Tiếng Việt bình thường'), 'Tiếng Việt bình thường')
-        app.update('test', output=json.dumps({'plan': 'English</think> Kế hoạch'}))
+        app.update('test', output=json.dumps({'plan': '<think>English</think> Kế hoạch'}))
         self.assertEqual(json.loads(app.public_task(self.row())['output'])['plan'], 'Kế hoạch')
         self.assertIn('English', self.row()['output'])
 
     def test_export_preserves_vietnamese_and_removes_reasoning(self):
-        app.update('test', status='completed', output=json.dumps({'plan': 'thinking</think>Kế hoạch tiếng Việt', 'result': 'Sản phẩm'}))
+        app.update('test', status='completed', output=json.dumps({'plan': '<think>thinking</think>Kế hoạch tiếng Việt', 'result': 'Sản phẩm'}))
         status, body = app.export_task('test', 'all')
         self.assertEqual(status, 200)
         text = body.decode('utf-8')
@@ -256,6 +256,42 @@ class WorkflowTest(unittest.TestCase):
                 self.assertEqual(json.load(response)['token'], app.CSRF_TOKEN)
         finally:
             server.shutdown(); server.server_close(); worker.join()
+
+    def test_filter_preserves_literal_tags_and_code(self):
+        for text in ('Thẻ <think> là gì?', 'Ví dụ </think> ở giữa câu.',
+                     '```xml\n<think>example</think>\n```',
+                     'Okay, thẻ </think> là ví dụ.'):
+            self.assertEqual(app.final_answer(text), text)
+        self.assertEqual(app.final_answer('<think>reason</think>Giải thích <think> và </think>'), 'Giải thích <think> và </think>')
+
+    def test_queue_serializes_jobs_and_preserves_order(self):
+        import threading
+        app.TASK_QUEUE.join()
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        calls = []
+        def fake_run(task_id, prompt, mode):
+            calls.append(task_id)
+            if task_id == 'first':
+                entered.set()
+                release.wait(5)
+            else:
+                finished.set()
+        with patch.object(app, 'run', side_effect=fake_run):
+            try:
+                app.enqueue_task('first', 'one', 'demo')
+                self.assertTrue(entered.wait(2))
+                app.enqueue_task('second', 'two', 'demo')
+                self.assertFalse(finished.wait(.1))
+                self.assertEqual(calls, ['first'])
+            finally:
+                release.set()
+                app.TASK_QUEUE.join()
+            self.assertEqual(calls, ['first', 'second'])
+
+    def test_sqlite_uses_wal_and_busy_timeout(self):
+        with app.connect() as db:
+            self.assertEqual(db.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
+            self.assertEqual(db.execute('PRAGMA busy_timeout').fetchone()[0], 30000)
 
 if __name__ == '__main__':
     unittest.main()

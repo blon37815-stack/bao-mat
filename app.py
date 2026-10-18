@@ -2,6 +2,7 @@
 import json
 import re
 import secrets
+import queue
 import os
 import sqlite3
 import threading
@@ -13,6 +14,9 @@ from pathlib import Path
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
 
+TASK_QUEUE = queue.Queue()
+WORKER_LOCK = threading.Lock()
+WORKER = None
 CSRF_TOKEN = secrets.token_urlsafe(32)
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get('BOT_DB', str(ROOT / 'data' / 'tasks.sqlite3')))
@@ -23,7 +27,9 @@ ROLES = [('plan', 'Điều phối', 'Chia yêu cầu thành kế hoạch cụ th
 
 def connect():
     DB.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(DB)
+    db = sqlite3.connect(DB, timeout=30)
+    db.execute('PRAGMA busy_timeout=30000')
+    db.execute('PRAGMA journal_mode=WAL')
     db.row_factory = sqlite3.Row
     db.execute('CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, prompt TEXT, mode TEXT, status TEXT, stage TEXT, output TEXT, created TEXT)')
     db.execute('CREATE TABLE IF NOT EXISTS project_memory (id INTEGER PRIMARY KEY CHECK(id=1), content TEXT NOT NULL)')
@@ -70,12 +76,18 @@ class State(TypedDict, total=False):
 
 
 def final_answer(text):
-    """Remove explicit reasoning sections, including Qwen's orphan closing tag."""
-    if '</think>' in text:
-        text = text.rsplit('</think>', 1)[1]
-    # An unfinished reasoning block must not be shown as a final answer.
-    text = re.sub(r'<think>.*', '', text, flags=re.DOTALL)
-    return text.strip()
+    """Strip only a leading reasoning block; preserve literal tags in answers."""
+    text = text.strip()
+    if text.startswith('<think>'):
+        end = text.find('</think>')
+        return text[end+len('</think>'):].strip() if end != -1 else ''
+    # Older Qwen responses omitted the opening tag. Restrict this workaround
+    # to recognizable English preambles and a closing tag on its own line.
+    if text.startswith(('Okay,', 'Let me think', 'Hmm,', 'Alright,')):
+        marker = re.search(r'^</think>[ \t]*(?:\r?\n|$)', text, re.MULTILINE)
+        if marker:
+            return text[marker.end():].strip()
+    return text
 
 
 def public_task(row):
@@ -150,6 +162,24 @@ def run(task_id, prompt, mode):
         update(task_id, status='failed', stage=('Không gọi được Ollama; kiểm tra ứng dụng Ollama đang chạy và đã tải mô hình' if mode == 'ollama' else 'Lỗi xử lý; kiểm tra cấu hình mô hình và kết nối'))
 
 
+def work_loop():
+    while True:
+        args = TASK_QUEUE.get()
+        try:
+            run(*args)
+        finally:
+            TASK_QUEUE.task_done()
+
+
+def enqueue_task(task_id, prompt, mode):
+    global WORKER
+    with WORKER_LOCK:
+        if WORKER is None or not WORKER.is_alive():
+            WORKER = threading.Thread(target=work_loop, daemon=True, name='bot-worker')
+            WORKER.start()
+        TASK_QUEUE.put((task_id, prompt, mode))
+
+
 def recover():
     with connect() as db:
         db.execute("UPDATE tasks SET status='interrupted', stage='Tiến trình bị dừng; có thể chạy lại nhiệm vụ' WHERE status IN ('queued','running')")
@@ -166,7 +196,7 @@ def retry_task(task_id):
         changed = db.execute("UPDATE tasks SET status='queued', stage='Chờ chạy lại', output='{}' WHERE id=? AND status IN ('failed','interrupted')", (task_id,)).rowcount
         if not changed:
             return 409, {'error': 'Chỉ chạy lại nhiệm vụ thất bại hoặc bị gián đoạn'}
-    threading.Thread(target=run, args=(task_id, task['prompt'], task['mode']), daemon=True).start()
+    enqueue_task(task_id, task['prompt'], task['mode'])
     return 202, {'id': task_id}
 
 
@@ -309,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
         with connect() as db:
             db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', (task_id, prompt.strip(), mode, 'queued', 'Chờ', '{}', datetime.now(timezone.utc).isoformat()))
             snapshot_memory(db, task_id)
-        threading.Thread(target=run, args=(task_id,prompt.strip(),mode), daemon=True).start()
+        enqueue_task(task_id, prompt.strip(), mode)
         self.respond(201, {'id':task_id})
 
 
