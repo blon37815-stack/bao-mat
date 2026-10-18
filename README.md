@@ -159,3 +159,18 @@ Python 3.12 trên Ubuntu và Windows. Gồm cài phụ thuộc, pip check và un
 Không dùng khóa API, không tải mô hình Ollama; kết nối mô hình được giả lập
 trong kiểm thử. Xem trạng thái thực tế trong tab Actions sau khi push; việc
 có workflow không có nghĩa là một lượt chạy trên GitHub đã đạt.
+
+
+## Kiểm tra có cấu trúc và tự sửa
+
+Ở chế độ Ollama/OpenAI, bot kiểm tra phải trả JSON với `passed` (boolean)
+và `issues` (danh sách lỗi). Nếu chưa đạt, bước thực hiện nhận lỗi và sửa,
+sau đó kiểm tra lại. Tối đa hai lần sửa, tức tối đa ba bản kết quả và bảy
+lần gọi mô hình cho một nhiệm vụ. OpenAI có thể tốn thêm phí; Ollama có thể
+chạy lâu hơn. Luồng tự sửa giữ hàng đợi cho đến khi xong nhiệm vụ hiện tại.
+
+Nếu vẫn chưa đạt hoặc mô hình trả sai định dạng, nhiệm vụ dừng ở **Cần bạn
+xem**; kết quả vẫn xem và tải được. Không coi JSON sai là đạt. Khi đạt,
+trạng thái ghi rõ đây là đánh giá của AI, chưa phải kiểm chứng bên ngoài.
+Bản đầu chỉ giữ kết quả và nhận xét mới nhất, chưa lưu lịch sử các vòng sửa.
+Chế độ mô phỏng không chạy vòng sửa. Nút duyệt và hủy chưa được triển khai.

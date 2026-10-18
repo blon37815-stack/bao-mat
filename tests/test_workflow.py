@@ -116,7 +116,7 @@ class WorkflowTest(unittest.TestCase):
         class OllamaStub(app.BaseHTTPRequestHandler):
             def do_POST(self):
                 requests.append((self.path, json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
-                payload = json.dumps({'message': {'content': 'Kết quả local ' + str(len(requests))}}).encode()
+                payload = json.dumps({'message': {'content': (json.dumps({'passed':True,'issues':[]}) if len(requests)==3 else 'Kết quả local ' + str(len(requests)))}}).encode()
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(payload)
@@ -213,7 +213,7 @@ class WorkflowTest(unittest.TestCase):
         app.save_memory('Dùng SQLite')
         with app.connect() as db:
             app.snapshot_memory(db, 'test')
-        with patch.object(app, 'ollama_reply', return_value='Kết quả') as model:
+        with patch.object(app, 'ollama_reply', return_value=json.dumps({'passed':True,'issues':[]})) as model:
             app.run('test', 'Lập kế hoạch', 'ollama')
         self.assertEqual(model.call_count, 3)
         for call in model.call_args_list:
@@ -300,6 +300,30 @@ class WorkflowTest(unittest.TestCase):
         with app.connect() as db:
             self.assertEqual(db.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
             self.assertEqual(db.execute('PRAGMA busy_timeout').fetchone()[0], 30000)
+
+    def test_review_repairs_once_then_passes(self):
+        responses = ['Kế hoạch', 'Thiếu chức năng', '{"passed":false,"issues":["Thiếu xóa"]}', 'Đã thêm xóa', '{"passed":true,"issues":[]}']
+        with patch.object(app, 'ollama_reply', side_effect=responses) as model:
+            app.run('test', 'Làm ứng dụng', 'ollama')
+        self.assertEqual(model.call_count, 5)
+        self.assertEqual(self.row()['status'], 'completed')
+        self.assertIn('Thiếu xóa', model.call_args_list[3].args[0][1]['content'])
+        self.assertEqual(json.loads(self.row()['output'])['result'], 'Đã thêm xóa')
+
+    def test_review_stops_after_two_repairs(self):
+        responses = ['Kế hoạch', 'Bản 1', '{"passed":false,"issues":["Thiếu"]}', 'Bản 2', '{"passed":false,"issues":["Thiếu"]}', 'Bản 3', '{"passed":false,"issues":["Thiếu"]}']
+        with patch.object(app, 'ollama_reply', side_effect=responses) as model:
+            app.run('test', 'Làm ứng dụng', 'ollama')
+        self.assertEqual(model.call_count, 7)
+        self.assertEqual(self.row()['status'], 'needs_review')
+        self.assertEqual(json.loads(self.row()['output'])['result'], 'Bản 3')
+
+    def test_invalid_review_never_claims_success(self):
+        with patch.object(app, 'ollama_reply', side_effect=['Kế hoạch','Kết quả','Có vẻ tốt']):
+            app.run('test', 'Làm ứng dụng', 'ollama')
+        self.assertEqual(self.row()['status'], 'needs_review')
+        for value in ('{"passed":"false","issues":[]}', '{"passed":true,"issues":["Lỗi"]}', '{"passed":false,"issues":[]}', '[]'):
+            self.assertIsNone(app.parse_review(value))
 
 if __name__ == '__main__':
     unittest.main()

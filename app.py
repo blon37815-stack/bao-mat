@@ -73,6 +73,8 @@ class State(TypedDict, total=False):
     result: str
     review: str
     project_memory: str
+    attempts: int
+    verdict: str
 
 
 def final_answer(text):
@@ -117,19 +119,52 @@ def ollama_reply(messages):
     return content
 
 
+def parse_review(text):
+    # Accept an optional outer Markdown fence, but no surrounding prose.
+    text = text.strip()
+    if text.startswith('```') and text.endswith('```'):
+        text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
+    try:
+        value = json.loads(text)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(value, dict) or type(value.get('passed')) is not bool:
+        return None
+    issues = value.get('issues')
+    if not isinstance(issues, list) or not all(isinstance(item, str) for item in issues):
+        return None
+    if not value['passed'] and not any(item.strip() for item in issues):
+        return None
+    if value['passed'] and issues:
+        return None
+    return {'passed': value['passed'], 'issues': issues}
+
+
+def review_route(state):
+    if state.get('verdict') == 'revise' and state.get('attempts', 0) < 3:
+        return 'result'
+    return END
+
+
 def build_graph():
     graph = StateGraph(State)
     for key, role, instruction in ROLES:
         def step(state, key=key, role=role, instruction=instruction):
-            update(state['id'], stage=role)
+            attempts = state.get('attempts', 0) + (1 if key == 'result' else 0)
+            update(state['id'], stage=role + (f' · lượt {attempts}/3' if key in ('result','review') else ''))
             if state['mode'] == 'demo':
                 output = {'plan': '1. Làm rõ mục tiêu: '+state['prompt']+'\n2. Soạn kết quả.\n3. Kiểm tra theo yêu cầu.',
                           'result': 'Đây là kết quả mô phỏng cho: '+state['prompt']+'\nChưa gọi mô hình AI và chưa thực hiện thao tác bên ngoài.',
                           'review': 'Luồng ba bước đã chạy. Nội dung là mô phỏng, chưa chứng minh nhiệm vụ thực tế hoàn thành.'}[key]
             else:
                 from openai import OpenAI
-                context = {k: state[k] for k in ('prompt', 'project_memory', 'plan', 'result') if k in state}
-                messages = [{'role':'system','content':instruction+' Chỉ trả lời kết quả cuối cùng bằng tiếng Việt rõ ràng, ngắn gọn. Không trình bày quá trình suy nghĩ hoặc tự đối thoại. Bạn chỉ tạo văn bản, không có công cụ thực thi.'},
+                context = {k: state[k] for k in ('prompt', 'project_memory', 'plan', 'result', 'review') if k in state}
+                role_instruction = instruction
+                if key == 'review':
+                    role_instruction += ' Chỉ xuất JSON hợp lệ: {"passed":true,"issues":[]} nếu đạt; nếu chưa đạt dùng passed=false và issues là danh sách lỗi cụ thể bằng tiếng Việt. Không tuyên bố đã thực thi hay kiểm thử mã. Không có văn bản ngoài JSON.'
+                elif key == 'result' and state.get('review'):
+                    role_instruction += ' Sửa kết quả trước theo các lỗi trong review, giữ đầy đủ yêu cầu ban đầu.'
+                messages = [{'role':'system','content':role_instruction+' Chỉ trả lời kết quả cuối cùng bằng tiếng Việt rõ ràng, ngắn gọn. Không trình bày quá trình suy nghĩ hoặc tự đối thoại. Bạn chỉ tạo văn bản, không có công cụ thực thi.'},
                             {'role':'user','content':json.dumps(context, ensure_ascii=False)}]
                 if state['mode'] == 'ollama':
                     output = ollama_reply(messages)
@@ -143,20 +178,30 @@ def build_graph():
             partial = {k: state[k] for k, _, _ in ROLES if k in state}
             partial[key] = output
             update(state['id'], output=json.dumps(partial, ensure_ascii=False))
-            return {key: output}
+            changes = {key: output, 'attempts': attempts}
+            if key == 'review' and state['mode'] != 'demo':
+                review = parse_review(output)
+                changes['verdict'] = 'unverified' if review is None else ('passed' if review['passed'] else 'revise')
+            return changes
         graph.add_node(key, step)
     graph.add_edge(START, 'plan')
     graph.add_edge('plan', 'result')
     graph.add_edge('result', 'review')
-    graph.add_edge('review', END)
+    graph.add_conditional_edges('review', review_route, ['result', END])
     return graph.compile()
 
 
 def run(task_id, prompt, mode):
     try:
         update(task_id, status='running')
-        build_graph().invoke({'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id)})
-        update(task_id, status='completed', stage='Hoàn thành luồng')
+        result = build_graph().invoke({'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id)})
+        if mode == 'demo':
+            update(task_id, status='completed', stage='Hoàn thành mô phỏng')
+        elif result.get('verdict') == 'passed':
+            update(task_id, status='completed', stage=f"AI đánh giá đạt · {result['attempts']} lượt · chưa xác minh bên ngoài")
+        else:
+            stage = 'Kiểm tra sai định dạng; cần người xem' if result.get('verdict') == 'unverified' else 'Chưa đạt sau 2 lần sửa; cần người xem'
+            update(task_id, status='needs_review', stage=stage)
     except Exception:
         # Do not persist provider errors that might contain credentials or request data.
         update(task_id, status='failed', stage=('Không gọi được Ollama; kiểm tra ứng dụng Ollama đang chạy và đã tải mô hình' if mode == 'ollama' else 'Lỗi xử lý; kiểm tra cấu hình mô hình và kết nối'))
@@ -203,7 +248,10 @@ def retry_task(task_id):
 def team_status():
     with connect() as db:
         rows = db.execute("SELECT stage, COUNT(*) AS count FROM tasks WHERE status='running' GROUP BY stage").fetchall()
-        counts = {row['stage']: row['count'] for row in rows}
+        counts = {}
+        for row in rows:
+            role = row['stage'].split(' · ')[0]
+            counts[role] = counts.get(role, 0) + row['count']
         totals = dict(db.execute('SELECT status, COUNT(*) FROM tasks GROUP BY status').fetchall())
     return {'bots': [{'name': role, 'active': counts.get(role, 0)} for _, role, _ in ROLES], 'totals': totals}
 
