@@ -5,20 +5,28 @@
 <script>
 const labels={queued:'Chờ',running:'Đang làm',completed:'Đã chạy xong',failed:'Thất bại',interrupted:'Bị gián đoạn'};
 function el(tag,text){const n=document.createElement(tag);n.textContent=text;return n}
+let sessionToken;
+async function apiFetch(url, options={}){
+ if(options.method==='POST'){
+  if(!sessionToken){const response=await fetch('/api/session');if(!response.ok)throw Error('Không khởi tạo được phiên; hãy tải lại trang');sessionToken=(await response.json()).token}
+  options={...options,headers:{...options.headers,'Content-Type':'application/json','X-CSRF-Token':sessionToken}};
+ }
+ return fetch(url,options);
+}
 const opened=new Set();
 const memoryField=document.querySelector('#memory'),memoryStatus=document.querySelector('#memory-status');
 document.querySelector('#save-memory').disabled=true;
-async function loadMemory(){try{const response=await fetch('/api/memory');if(!response.ok)throw Error('Không tải được bộ nhớ; hãy tải lại trang');const data=await response.json();memoryField.value=data.content;document.querySelector('#save-memory').disabled=false}catch(e){memoryStatus.textContent=e.message}}
-document.querySelector('#memory-form').onsubmit=async event=>{event.preventDefault();const button=document.querySelector('#save-memory');button.disabled=true;try{const response=await fetch('/api/memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:memoryField.value})});if(!response.ok)throw Error('Chưa lưu được bộ nhớ');memoryStatus.textContent='Đã lưu. Nhiệm vụ mới sẽ dùng bộ nhớ này.'}catch(e){memoryStatus.textContent=e.message}finally{button.disabled=false}};
+async function loadMemory(){try{const response=await apiFetch('/api/memory');if(!response.ok)throw Error('Không tải được bộ nhớ; hãy tải lại trang');const data=await response.json();memoryField.value=data.content;document.querySelector('#save-memory').disabled=false}catch(e){memoryStatus.textContent=e.message}}
+document.querySelector('#memory-form').onsubmit=async event=>{event.preventDefault();const button=document.querySelector('#save-memory');button.disabled=true;try{const response=await apiFetch('/api/memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:memoryField.value})});if(!response.ok)throw Error('Chưa lưu được bộ nhớ');memoryStatus.textContent='Đã lưu. Nhiệm vụ mới sẽ dùng bộ nhớ này.'}catch(e){memoryStatus.textContent=e.message}finally{button.disabled=false}};
 loadMemory();
 async function retry(id,button){
  if(!confirm('Chạy lại từ bước đầu? Kết quả cũ sẽ được thay thế. OpenAI có thể phát sinh thêm phí; Ollama chạy trên máy.'))return;
  button.disabled=true;
- try{const response=await fetch('/api/tasks/'+id+'/retry',{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);await refresh()}
+ try{const response=await apiFetch('/api/tasks/'+id+'/retry',{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);await refresh()}
  catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}
 }
 async function refresh(){try{
- const [response,teamResponse]=await Promise.all([fetch('/api/tasks'),fetch('/api/team')]);
+ const [response,teamResponse]=await Promise.all([apiFetch('/api/tasks'),apiFetch('/api/team')]);
  if(!response.ok||!teamResponse.ok)throw Error('Không đọc được trạng thái đội bot');
  const data=await response.json(),team=await teamResponse.json();
  document.querySelector('option[value="ai"]').disabled=!data.ai_available;
@@ -44,5 +52,5 @@ async function refresh(){try{
  }
  }catch(e){document.querySelector('#error').textContent=e.message}}
 document.querySelector('#filter').onchange=refresh;
-document.querySelector('#form').onsubmit=async e=>{e.preventDefault();const button=document.querySelector('#submit');button.disabled=true;try{const r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:document.querySelector('#prompt').value,mode:document.querySelector('#mode').value})});const data=await r.json();if(!r.ok)throw Error(data.error);document.querySelector('#error').textContent='';document.querySelector('#prompt').value='';await refresh()}catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}};refresh();setInterval(refresh,2000);
+document.querySelector('#form').onsubmit=async e=>{e.preventDefault();const button=document.querySelector('#submit');button.disabled=true;try{const r=await apiFetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:document.querySelector('#prompt').value,mode:document.querySelector('#mode').value})});const data=await r.json();if(!r.ok)throw Error(data.error);document.querySelector('#error').textContent='';document.querySelector('#prompt').value='';await refresh()}catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}};refresh();setInterval(refresh,2000);
 </script></html>

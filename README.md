@@ -111,3 +111,14 @@ nhiệm vụ dùng bản sao cũ. Nhiệm vụ tạo trước phiên bản này 
 Bản đầu hỗ trợ một bộ nhớ chung, chưa phân tách nhiều dự án.
 
 API: `GET /api/memory`, `POST /api/memory` với JSON `{"content":"..."}`.
+
+## Bảo vệ yêu cầu cục bộ
+
+Máy chủ chỉ nhận Host `127.0.0.1:<cổng>` hoặc `localhost:<cổng>`.
+Yêu cầu có Origin phải khớp chính xác địa chỉ trang ứng dụng; Origin `null`
+và Fetch Metadata `cross-site` bị từ chối. Mọi POST yêu cầu
+`Content-Type: application/json` và `X-CSRF-Token` lấy từ `GET /api/session`.
+Giao diện tự lấy token; token đổi khi khởi động app nên cần tải lại trang.
+API client bên ngoài cũng cần lấy và gửi token. Đây là bảo vệ trước yêu cầu
+web chéo nguồn, không thay thế đăng nhập hoặc ngăn phần mềm độc hại trên máy.
+Ứng dụng vẫn chỉ dành cho sử dụng cá nhân trên loopback.

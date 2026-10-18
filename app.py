@@ -1,6 +1,7 @@
 """Local agent team dashboard. Run: python app.py"""
 import json
 import re
+import secrets
 import os
 import sqlite3
 import threading
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import TypedDict
 from langgraph.graph import StateGraph, START, END
 
+CSRF_TOKEN = secrets.token_urlsafe(32)
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get('BOT_DB', str(ROOT / 'data' / 'tasks.sqlite3')))
 ROLES = [('plan', 'Điều phối', 'Chia yêu cầu thành kế hoạch cụ thể, nêu tiêu chí hoàn thành.'),
@@ -204,6 +206,30 @@ def export_task(task_id, section):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def allowed_request(self, writing=False):
+        hosts = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
+        host = self.headers.get('Host')
+        if len(self.headers.get_all('Host', [])) != 1 or host not in hosts:
+            self.respond(403, {'error':'Host không hợp lệ'})
+            return False
+        origin = self.headers.get('Origin')
+        if (origin is not None and origin != 'http://' + host) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
+            self.respond(403, {'error':'Chỉ nhận yêu cầu từ trang ứng dụng trên máy này'})
+            return False
+        if writing:
+            if self.headers.get_content_type() != 'application/json':
+                self.respond(415, {'error':'Yêu cầu phải dùng application/json'})
+                return False
+            if not secrets.compare_digest(self.headers.get('X-CSRF-Token', '').encode('utf-8'), CSRF_TOKEN.encode('ascii')):
+                self.respond(403, {'error':'Phiên không hợp lệ; hãy tải lại trang'})
+                return False
+        return True
+
+    def end_headers(self):
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('Cache-Control', 'no-store')
+        super().end_headers()
+
     def respond(self, status, body, content_type='application/json; charset=utf-8'):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
         self.send_response(status)
@@ -213,6 +239,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
+        if not self.allowed_request():
+            return
+        if self.path == '/api/session':
+            return self.respond(200, {'token':CSRF_TOKEN})
         if self.path == '/':
             return self.respond(200, (ROOT/'index.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/api/memory':
@@ -245,6 +275,8 @@ class Handler(BaseHTTPRequestHandler):
         self.respond(404, {'error':'Không tìm thấy'})
 
     def do_POST(self):
+        if not self.allowed_request(writing=True):
+            return
         if self.path == '/api/memory':
             try:
                 length = int(self.headers.get('Content-Length', '0'))

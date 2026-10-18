@@ -72,11 +72,11 @@ class WorkflowTest(unittest.TestCase):
                 return json.load(response)
         try:
             self.assertEqual(get('/api/tasks/test')['id'], 'test')
-            memory_request = urllib.request.Request(base+'/api/memory', data=json.dumps({'content':'Dự án tiếng Việt'}).encode(), headers={'Content-Type':'application/json'})
+            memory_request = urllib.request.Request(base+'/api/memory', data=json.dumps({'content':'Dự án tiếng Việt'}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
             with urllib.request.urlopen(memory_request) as response:
                 self.assertTrue(json.load(response)['saved'])
             self.assertEqual(get('/api/memory')['content'], 'Dự án tiếng Việt')
-            create_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thử bộ nhớ','mode':'demo'}).encode(), headers={'Content-Type':'application/json'})
+            create_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thử bộ nhớ','mode':'demo'}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
             with urllib.request.urlopen(create_request) as response:
                 new_id = json.load(response)['id']
             for _ in range(100):
@@ -90,7 +90,7 @@ class WorkflowTest(unittest.TestCase):
                 get('/api/tasks/missing')
             self.assertEqual(error.exception.code, 404)
             app.update('test', status='interrupted')
-            request = urllib.request.Request(base+'/api/tasks/test/retry', method='POST')
+            request = urllib.request.Request(base+'/api/tasks/test/retry', method='POST', headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
             with urllib.request.urlopen(request) as response:
                 self.assertEqual(response.status, 202)
             for _ in range(100):
@@ -227,6 +227,35 @@ class WorkflowTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 app.save_memory(value)
         self.assertEqual(app.get_memory(), 'Giữ nguyên')
+
+    def test_http_rejects_cross_site_invalid_host_and_missing_token(self):
+        import threading
+        import urllib.request
+        import urllib.error
+        server = app.ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        base = 'http://127.0.0.1:'+str(server.server_port)
+        try:
+            for path, headers, data, code in [
+                ('/api/session', {'Host':'attacker.example'}, None, 403),
+                ('/api/session', {'Origin':'https://attacker.example'}, None, 403),
+                ('/api/session', {'Origin':'null'}, None, 403),
+                ('/api/memory', {'Content-Type':'text/plain'}, b'{}', 415),
+                ('/api/memory', {'Content-Type':'application/json'}, b'{}', 403),
+                ('/api/memory', {'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN,'Origin':'https://attacker.example'}, b'{}', 403),
+            ]:
+                with self.subTest(headers=headers):
+                    request = urllib.request.Request(base+path, headers=headers, data=data)
+                    with self.assertRaises(urllib.error.HTTPError) as error:
+                        urllib.request.urlopen(request)
+                    self.assertEqual(error.exception.code, code)
+            self.assertEqual(app.get_memory(), '')
+            request = urllib.request.Request(base+'/api/session', headers={'Origin':base})
+            with urllib.request.urlopen(request) as response:
+                self.assertEqual(json.load(response)['token'], app.CSRF_TOKEN)
+        finally:
+            server.shutdown(); server.server_close(); worker.join()
 
 if __name__ == '__main__':
     unittest.main()
