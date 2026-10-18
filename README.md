@@ -83,3 +83,15 @@ Ollama lỗi và không cần OPENAI_API_KEY ở chế độ này.
 
 Máy chủ Codex trên đám mây không kết nối được Ollama qua loopback của máy
 Windows; cả app và Ollama cần chạy trên cùng máy theo hướng dẫn trên.
+
+## Tải sản phẩm
+
+Mở nhiệm vụ có kết quả và bấm **Tải toàn bộ báo cáo (.md)**, hoặc mở chi tiết
+để tải riêng kế hoạch, kết quả hay báo cáo kiểm tra. Tệp Markdown UTF-8 giữ
+nguyên tiếng Việt, gồm yêu cầu và trạng thái nhiệm vụ. Báo cáo mô phỏng và
+kết quả một phần được đánh dấu rõ. Phần suy nghĩ trong thẻ think được loại bỏ
+như trên giao diện. Tải xuống không gọi mô hình và không phát sinh phí API.
+
+API: `GET /api/tasks/{id}/export/{all|plan|result|review}`. Trả về 409 khi
+chưa có nội dung cho phần được yêu cầu, 404 khi không tìm thấy. Bản này xuất
+nội dung văn bản thành Markdown, chưa tạo và thực thi dự án mã nguồn.

@@ -149,6 +149,31 @@ def team_status():
     return {'bots': [{'name': role, 'active': counts.get(role, 0)} for _, role, _ in ROLES], 'totals': totals}
 
 
+def export_task(task_id, section):
+    titles = {'plan': 'Kế hoạch', 'result': 'Kết quả', 'review': 'Kiểm tra'}
+    if section not in (*titles, 'all'):
+        return 404, None
+    with connect() as db:
+        row = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
+    if row is None:
+        return 404, None
+    task = public_task(row)
+    outputs = json.loads(task['output'])
+    selected = {key: outputs[key] for key in titles if outputs.get(key) and (section == 'all' or section == key)}
+    if not selected:
+        return 409, None
+    lines = ['# Nhiệm vụ đội bot', '', task['prompt'], '',
+             'Mã nhiệm vụ: ' + task['id'], 'Chế độ: ' + task['mode'],
+             'Trạng thái: ' + task['status'], 'Tạo lúc (UTC): ' + task['created'], '']
+    if task['mode'] == 'demo':
+        lines += ['> MÔ PHỎNG: nội dung không phải kết quả AI thực hiện nhiệm vụ.', '']
+    if task['status'] != 'completed':
+        lines += ['> Kết quả một phần; luồng chưa hoàn thành.', '']
+    for key, value in selected.items():
+        lines += ['## ' + titles[key], '', value, '']
+    return 200, '\n'.join(lines).encode('utf-8')
+
+
 class Handler(BaseHTTPRequestHandler):
     def respond(self, status, body, content_type='application/json; charset=utf-8'):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
@@ -163,6 +188,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, (ROOT/'index.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path == '/api/team':
             return self.respond(200, team_status())
+        if self.path.startswith('/api/tasks/') and '/export/' in self.path:
+            parts = self.path.split('/')
+            if len(parts) != 6 or not re.fullmatch(r'[a-zA-Z0-9_-]+', parts[3]):
+                return self.respond(404, {'error':'Không tìm thấy'})
+            status, payload = export_task(parts[3], parts[5])
+            if status != 200:
+                return self.respond(status, {'error':'Không tìm thấy hoặc chưa có kết quả để tải'})
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/markdown; charset=utf-8')
+            self.send_header('Content-Disposition', 'attachment; filename="task-'+parts[3]+'-'+parts[5]+'.md"')
+            self.send_header('Content-Length', str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if self.path.startswith('/api/tasks/'):
             task_id = self.path.removeprefix('/api/tasks/')
             with connect() as db:

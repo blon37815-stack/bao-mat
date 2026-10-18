@@ -87,6 +87,10 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(task['status'], 'completed')
             self.assertEqual(len(json.loads(task['output'])), 3)
             self.assertEqual(get('/api/team')['totals']['completed'], 1)
+            with urllib.request.urlopen(base+'/api/tasks/test/export/all') as response:
+                self.assertIn('attachment', response.headers['Content-Disposition'])
+                self.assertIn('text/markdown', response.headers['Content-Type'])
+                self.assertIn('Kiểm tra', response.read().decode('utf-8'))
         finally:
             server.shutdown()
             server.server_close()
@@ -155,6 +159,28 @@ class WorkflowTest(unittest.TestCase):
         app.update('test', output=json.dumps({'plan': 'English</think> Kế hoạch'}))
         self.assertEqual(json.loads(app.public_task(self.row())['output'])['plan'], 'Kế hoạch')
         self.assertIn('English', self.row()['output'])
+
+    def test_export_preserves_vietnamese_and_removes_reasoning(self):
+        app.update('test', status='completed', output=json.dumps({'plan': 'thinking</think>Kế hoạch tiếng Việt', 'result': 'Sản phẩm'}))
+        status, body = app.export_task('test', 'all')
+        self.assertEqual(status, 200)
+        text = body.decode('utf-8')
+        self.assertIn('Kế hoạch tiếng Việt', text)
+        self.assertIn('Sản phẩm', text)
+        self.assertIn('MÔ PHỎNG', text)
+        self.assertNotIn('thinking', text)
+        _, body = app.export_task('test', 'plan')
+        self.assertNotIn('Sản phẩm', body.decode('utf-8'))
+
+    def test_export_handles_missing_and_partial_results(self):
+        self.assertEqual(app.export_task('missing', 'all')[0], 404)
+        self.assertEqual(app.export_task('test', 'unknown')[0], 404)
+        self.assertEqual(app.export_task('test', 'all')[0], 409)
+        app.update('test', output=json.dumps({'plan': 'Kế hoạch'}))
+        status, body = app.export_task('test', 'all')
+        self.assertEqual(status, 200)
+        self.assertIn('Kết quả một phần', body.decode('utf-8'))
+        self.assertEqual(app.export_task('test', 'result')[0], 409)
 
 if __name__ == '__main__':
     unittest.main()
