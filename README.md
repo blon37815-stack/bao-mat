@@ -174,3 +174,21 @@ xem**; kết quả vẫn xem và tải được. Không coi JSON sai là đạt.
 trạng thái ghi rõ đây là đánh giá của AI, chưa phải kiểm chứng bên ngoài.
 Bản đầu chỉ giữ kết quả và nhận xét mới nhất, chưa lưu lịch sử các vòng sửa.
 Chế độ mô phỏng không chạy vòng sửa. Nút duyệt và hủy chưa được triển khai.
+
+## Duyệt và hủy nhiệm vụ
+
+- **Hủy nhiệm vụ** áp dụng cho việc đang chờ hoặc đang xử lý. Việc chờ bị
+  bỏ qua khi worker lấy khỏi hàng đợi. Với việc đang gọi mô hình, phản hồi
+  trả về bị bỏ qua và không chạy bước tiếp theo; kết quả các bước trước vẫn
+  được giữ. Chưa có khả năng ngắt ngay phép tính bên trong Ollama/OpenAI.
+  Worker tiếp tục chờ yêu cầu hiện tại kết thúc hoặc timeout rồi mới lấy
+  việc tiếp theo. Phí OpenAI của yêu cầu đã gửi có thể vẫn phát sinh.
+- **Duyệt kết quả** chỉ áp dụng cho nhiệm vụ AI đã chạy xong hoặc cần người
+  xem và có kết quả. Trạng thái chuyển thành **Bạn đã duyệt**, giữ nguyên nội
+  dung và nhận xét kiểm tra. Việc duyệt không thực thi hay triển khai mã;
+  mô phỏng không được duyệt. Bản đầu chưa có thao tác thu hồi duyệt hoặc chạy
+  lại nhiệm vụ đã hủy; có thể tạo nhiệm vụ mới.
+
+API: `POST /api/tasks/{id}/cancel`, `POST /api/tasks/{id}/approve`, dùng JSON
+Content-Type và token phiên như các API ghi khác. Trả 200 khi thành công,
+409 khi trạng thái không cho phép, 404 khi không tìm thấy.

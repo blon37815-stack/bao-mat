@@ -325,5 +325,48 @@ class WorkflowTest(unittest.TestCase):
         for value in ('{"passed":"false","issues":[]}', '{"passed":true,"issues":["Lỗi"]}', '{"passed":false,"issues":[]}', '[]'):
             self.assertIsNone(app.parse_review(value))
 
+    def test_cancel_queued_task_never_calls_model(self):
+        self.assertEqual(app.task_action('test','cancel')[0], 200)
+        with patch.object(app, 'ollama_reply') as model:
+            app.run('test','Không chạy','ollama')
+        model.assert_not_called()
+        self.assertEqual(self.row()['status'], 'cancelled')
+        self.assertEqual(app.task_action('test','cancel')[0], 409)
+
+    def test_cancel_inflight_discards_response_and_stops_following_steps(self):
+        import threading
+        entered, release = threading.Event(), threading.Event()
+        def reply(messages):
+            entered.set()
+            release.wait(5)
+            return 'Không được lưu'
+        with patch.object(app, 'ollama_reply', side_effect=reply) as model:
+            worker = threading.Thread(target=app.run, args=('test','Yêu cầu','ollama'))
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertEqual(app.task_action('test','cancel')[0], 200)
+            finally:
+                release.set()
+                worker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(model.call_count, 1)
+        self.assertEqual(self.row()['status'], 'cancelled')
+        self.assertEqual(self.row()['output'], '{}')
+
+    def test_approve_is_explicit_and_preserves_result(self):
+        self.assertEqual(app.task_action('test','approve')[0], 409)
+        app.update('test', mode='ollama', status='needs_review', output=json.dumps({'result':'Nội dung'}))
+        self.assertEqual(app.task_action('test','approve')[0], 200)
+        self.assertEqual(self.row()['status'], 'approved')
+        self.assertEqual(json.loads(self.row()['output'])['result'], 'Nội dung')
+        self.assertEqual(app.task_action('test','approve')[0], 409)
+        self.assertEqual(app.task_action('test','cancel')[0], 409)
+        self.assertEqual(app.task_action('missing','cancel')[0], 404)
+
+    def test_demo_cannot_be_approved(self):
+        app.run('test','Mô phỏng','demo')
+        self.assertEqual(app.task_action('test','approve')[0], 409)
+
 if __name__ == '__main__':
     unittest.main()

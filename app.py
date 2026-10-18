@@ -65,6 +65,34 @@ def update(task_id, **fields):
         db.execute('UPDATE tasks SET ' + ','.join(k+'=?' for k in fields) + ' WHERE id=?', [*fields.values(), task_id])
 
 
+class TaskCancelled(Exception):
+    pass
+
+
+def worker_update(task_id, **fields):
+    with connect() as db:
+        changed = db.execute('UPDATE tasks SET ' + ','.join(k+'=?' for k in fields)
+            + " WHERE id=? AND status!='cancelled'", [*fields.values(), task_id]).rowcount
+    if not changed:
+        raise TaskCancelled()
+
+
+def task_action(task_id, action):
+    with connect() as db:
+        row = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
+        if row is None:
+            return 404, {'error':'Không tìm thấy nhiệm vụ'}
+        if action == 'cancel':
+            changed = db.execute("UPDATE tasks SET status='cancelled', stage='Đã hủy; phản hồi đang tính sẽ bị bỏ qua' WHERE id=? AND status IN ('queued','running')", (task_id,)).rowcount
+        elif action == 'approve':
+            if row['mode'] == 'demo' or not json.loads(row['output']).get('result'):
+                return 409, {'error':'Không thể duyệt mô phỏng hoặc nhiệm vụ chưa có kết quả'}
+            changed = db.execute("UPDATE tasks SET status='approved', stage='Người dùng đã duyệt kết quả' WHERE id=? AND status IN ('completed','needs_review')", (task_id,)).rowcount
+        else:
+            return 404, {'error':'Không tìm thấy thao tác'}
+    return (200, {'id':task_id}) if changed else (409, {'error':'Trạng thái nhiệm vụ không cho phép thao tác này'})
+
+
 class State(TypedDict, total=False):
     id: str
     prompt: str
@@ -151,7 +179,7 @@ def build_graph():
     for key, role, instruction in ROLES:
         def step(state, key=key, role=role, instruction=instruction):
             attempts = state.get('attempts', 0) + (1 if key == 'result' else 0)
-            update(state['id'], stage=role + (f' · lượt {attempts}/3' if key in ('result','review') else ''))
+            worker_update(state['id'], stage=role + (f' · lượt {attempts}/3' if key in ('result','review') else ''))
             if state['mode'] == 'demo':
                 output = {'plan': '1. Làm rõ mục tiêu: '+state['prompt']+'\n2. Soạn kết quả.\n3. Kiểm tra theo yêu cầu.',
                           'result': 'Đây là kết quả mô phỏng cho: '+state['prompt']+'\nChưa gọi mô hình AI và chưa thực hiện thao tác bên ngoài.',
@@ -177,7 +205,7 @@ def build_graph():
                 raise ValueError('No final answer')
             partial = {k: state[k] for k, _, _ in ROLES if k in state}
             partial[key] = output
-            update(state['id'], output=json.dumps(partial, ensure_ascii=False))
+            worker_update(state['id'], output=json.dumps(partial, ensure_ascii=False))
             changes = {key: output, 'attempts': attempts}
             if key == 'review' and state['mode'] != 'demo':
                 review = parse_review(output)
@@ -193,18 +221,23 @@ def build_graph():
 
 def run(task_id, prompt, mode):
     try:
-        update(task_id, status='running')
+        worker_update(task_id, status='running')
         result = build_graph().invoke({'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id)})
         if mode == 'demo':
-            update(task_id, status='completed', stage='Hoàn thành mô phỏng')
+            worker_update(task_id, status='completed', stage='Hoàn thành mô phỏng')
         elif result.get('verdict') == 'passed':
-            update(task_id, status='completed', stage=f"AI đánh giá đạt · {result['attempts']} lượt · chưa xác minh bên ngoài")
+            worker_update(task_id, status='completed', stage=f"AI đánh giá đạt · {result['attempts']} lượt · chưa xác minh bên ngoài")
         else:
             stage = 'Kiểm tra sai định dạng; cần người xem' if result.get('verdict') == 'unverified' else 'Chưa đạt sau 2 lần sửa; cần người xem'
-            update(task_id, status='needs_review', stage=stage)
+            worker_update(task_id, status='needs_review', stage=stage)
+    except TaskCancelled:
+        return
     except Exception:
         # Do not persist provider errors that might contain credentials or request data.
-        update(task_id, status='failed', stage=('Không gọi được Ollama; kiểm tra ứng dụng Ollama đang chạy và đã tải mô hình' if mode == 'ollama' else 'Lỗi xử lý; kiểm tra cấu hình mô hình và kết nối'))
+        try:
+            worker_update(task_id, status='failed', stage=('Không gọi được Ollama; kiểm tra ứng dụng Ollama đang chạy và đã tải mô hình' if mode == 'ollama' else 'Lỗi xử lý; kiểm tra cấu hình mô hình và kết nối'))
+        except TaskCancelled:
+            pass
 
 
 def work_loop():
@@ -276,7 +309,7 @@ def export_task(task_id, section):
         lines += ['## Bộ nhớ dự án khi giao việc', '', task['project_memory'], '']
     if task['mode'] == 'demo':
         lines += ['> MÔ PHỎNG: nội dung không phải kết quả AI thực hiện nhiệm vụ.', '']
-    if task['status'] != 'completed':
+    if task['status'] not in ('completed','approved'):
         lines += ['> Kết quả một phần; luồng chưa hoàn thành.', '']
     for key, value in selected.items():
         lines += ['## ' + titles[key], '', value, '']
@@ -369,6 +402,12 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError, AttributeError):
                 return self.respond(400, {'error':'Bộ nhớ phải là văn bản tối đa 8000 ký tự'})
             return self.respond(200, {'saved':True})
+        if self.path.startswith('/api/tasks/') and self.path.rsplit('/', 1)[-1] in ('cancel','approve'):
+            parts = self.path.split('/')
+            if len(parts) != 5:
+                return self.respond(404, {'error':'Không tìm thấy'})
+            status, result = task_action(parts[3], parts[4])
+            return self.respond(status, result)
         if self.path.startswith('/api/tasks/') and self.path.endswith('/retry'):
             task_id = self.path[len('/api/tasks/'):-len('/retry')]
             status, result = retry_task(task_id)
