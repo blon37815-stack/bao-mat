@@ -138,3 +138,24 @@ thiếu thẻ mở, chỉ lọc khi có lời mở đầu suy nghĩ tiếng Anh 
 `</think>` nằm riêng một dòng. Thẻ được nhắc giữa câu hoặc trong khối mã được
 giữ nguyên. Đây là quy tắc nhận diện có giới hạn, chưa phân biệt hoàn hảo mọi
 trường hợp văn bản trích dẫn và suy nghĩ thiếu định dạng.
+
+## Nhấp đúp để chạy trên Windows
+
+Sau khi tải mã về, nhấp đúp **cai-dat.bat** để tạo môi trường Python 3.12 và
+cài phụ thuộc (cần Internet). Nếu đã cài thủ công, có thể bỏ qua bước này.
+Sau đó nhấp đúp **chay.bat**. Khi thấy `Bot team listening`, mở địa chỉ
+hiển thị trong cửa sổ bằng trình duyệt. Giữ cửa sổ mở và giữ Ollama chạy nền.
+Không mở nhiều bản app cùng lúc. Tệp BAT dùng thông báo không dấu để tránh
+lỗi bảng mã Windows; giao diện web vẫn dùng tiếng Việt có dấu.
+
+Các tệp BAT tự chuyển đến thư mục dự án kể cả khi đường dẫn có khoảng trắng.
+Không cần quyền quản trị hay thay đổi execution policy. Sau khi cập nhật có
+thay đổi requirements.txt, chạy lại cai-dat.bat trước khi khởi động.
+
+## Kiểm thử tự động trên GitHub
+
+Workflow `.github/workflows/tests.yml` chạy trên push và pull request, dùng
+Python 3.12 trên Ubuntu và Windows. Gồm cài phụ thuộc, pip check và unittest.
+Không dùng khóa API, không tải mô hình Ollama; kết nối mô hình được giả lập
+trong kiểm thử. Xem trạng thái thực tế trong tab Actions sau khi push; việc
+có workflow không có nghĩa là một lượt chạy trên GitHub đã đạt.
