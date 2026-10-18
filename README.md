@@ -249,3 +249,14 @@ API: khi `POST /api/tasks`, thêm `parent_id` của nhiệm vụ sản phẩm đ
 thúc và có bộ tệp hợp lệ; server tự bật `product:true`. Nguồn sai trả 404/409,
 nguồn quá lớn trả 413. `GET /api/tasks/{id}/diff` trả thay đổi so với bản sao
 gốc; `GET /api/tasks/{id}/file/{index}` tải một tệp trong danh sách files.
+
+## Nhấp đúp để cập nhật
+
+Dừng app bằng Ctrl+C (nhập Y nếu Windows hỏi dừng batch), rồi nhấp đúp
+**cap-nhat.bat**. Tệp chạy `git pull --ff-only` trên nhánh
+`feat/bot-team-dashboard`, dừng nếu có thay đổi/tệp chưa được Git quản lý,
+không tự reset hoặc xóa tệp. Dữ liệu data, khóa .env và .venv được Git bỏ qua.
+Nếu requirements.txt đổi, tự cập nhật phụ thuộc bằng Python trong .venv.
+Nếu cài thư viện thất bại, mã có thể đã được cập nhật; chạy cai-dat.bat để
+khắc phục trước khi mở app. Cuối cùng chọn Y để mở đội bot hoặc N để đóng.
+Giữ Ollama chạy nền, tải lại trình duyệt bằng Ctrl+F5 sau khi khởi động app.
