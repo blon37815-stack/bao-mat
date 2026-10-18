@@ -80,7 +80,30 @@ def run(task_id, prompt, mode):
 
 def recover():
     with connect() as db:
-        db.execute("UPDATE tasks SET status='interrupted', stage='Tiến trình bị dừng; hãy tạo lại nhiệm vụ' WHERE status IN ('queued','running')")
+        db.execute("UPDATE tasks SET status='interrupted', stage='Tiến trình bị dừng; có thể chạy lại nhiệm vụ' WHERE status IN ('queued','running')")
+
+
+def retry_task(task_id):
+    """Atomically claim failed work so double clicks cannot start two runs."""
+    with connect() as db:
+        task = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
+        if task is None:
+            return 404, {'error': 'Không tìm thấy nhiệm vụ'}
+        if task['mode'] == 'ai' and not os.environ.get('OPENAI_API_KEY'):
+            return 400, {'error': 'Chưa cấu hình OPENAI_API_KEY'}
+        changed = db.execute("UPDATE tasks SET status='queued', stage='Chờ chạy lại', output='{}' WHERE id=? AND status IN ('failed','interrupted')", (task_id,)).rowcount
+        if not changed:
+            return 409, {'error': 'Chỉ chạy lại nhiệm vụ thất bại hoặc bị gián đoạn'}
+    threading.Thread(target=run, args=(task_id, task['prompt'], task['mode']), daemon=True).start()
+    return 202, {'id': task_id}
+
+
+def team_status():
+    with connect() as db:
+        rows = db.execute("SELECT stage, COUNT(*) AS count FROM tasks WHERE status='running' GROUP BY stage").fetchall()
+        counts = {row['stage']: row['count'] for row in rows}
+        totals = dict(db.execute('SELECT status, COUNT(*) FROM tasks GROUP BY status').fetchall())
+    return {'bots': [{'name': role, 'active': counts.get(role, 0)} for _, role, _ in ROLES], 'totals': totals}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -95,6 +118,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/':
             return self.respond(200, (ROOT/'index.html').read_bytes(), 'text/html; charset=utf-8')
+        if self.path == '/api/team':
+            return self.respond(200, team_status())
+        if self.path.startswith('/api/tasks/'):
+            task_id = self.path.removeprefix('/api/tasks/')
+            with connect() as db:
+                row = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
+            return self.respond(200, dict(row)) if row else self.respond(404, {'error':'Không tìm thấy nhiệm vụ'})
         if self.path == '/api/tasks':
             with connect() as db:
                 tasks = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 100')]
@@ -102,6 +132,10 @@ class Handler(BaseHTTPRequestHandler):
         self.respond(404, {'error':'Không tìm thấy'})
 
     def do_POST(self):
+        if self.path.startswith('/api/tasks/') and self.path.endswith('/retry'):
+            task_id = self.path[len('/api/tasks/'):-len('/retry')]
+            status, result = retry_task(task_id)
+            return self.respond(status, result)
         if self.path != '/api/tasks':
             return self.respond(404, {'error':'Không tìm thấy'})
         try:

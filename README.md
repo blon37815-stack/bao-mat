@@ -38,3 +38,15 @@ và không tự chạy lại. Giao diện hiển thị 100 nhiệm vụ gần nh
 - Chỉ thêm Letta khi cần bộ nhớ agent dài hạn; đánh giá OpenHands như dịch vụ
   lập trình riêng. CrewAI là lựa chọn thay thế để tổ chức đội, chưa cần xếp
   thêm lên LangGraph ở bản đầu.
+
+## Quản lý nhiệm vụ
+
+Bảng điều hành hiển thị số nhiệm vụ đang xử lý ở từng vai trò và tổng số
+nhiệm vụ theo trạng thái. Có bộ lọc và mục chi tiết cho từng nhiệm vụ.
+Với nhiệm vụ thất bại hoặc bị gián đoạn, nút **Chạy lại từ đầu** xóa kết quả
+cũ và chạy lại cả ba bước; chế độ AI có thể tính phí lần nữa. Không tự động
+chạy lại sau lỗi hoặc khởi động lại để tránh phát sinh chi phí ngoài ý muốn.
+
+API bổ sung: `GET /api/team`, `GET /api/tasks/{id}` và
+`POST /api/tasks/{id}/retry`. Chạy lại trả về 202 khi được nhận, 409 khi
+trạng thái không phù hợp, 404 khi không tìm thấy nhiệm vụ.

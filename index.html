@@ -1,10 +1,41 @@
 <!doctype html><html lang="vi"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Đội bot · Bao Mat</title>
 <style>body{background:#10151d;color:#e4ebf5;font:16px system-ui;max-width:1000px;margin:40px auto;padding:0 20px}h1{margin-bottom:8px}p,small{color:#a7b6ca}section,article{background:#1a2330;border:1px solid #334257;border-radius:12px;padding:20px;margin:18px 0}textarea{box-sizing:border-box;width:100%;min-height:100px;background:#10151d;color:white;border:1px solid #52637a;border-radius:8px;padding:12px;font:inherit}button,select{padding:10px;margin-top:12px;border-radius:6px}button{background:#89e0bb;border:0;cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}#error{color:#ffb4b4}.roles{display:flex;gap:12px;flex-wrap:wrap}.roles span{background:#263649;padding:12px;border-radius:8px}</style>
 <h1>Đội bot của bạn</h1><p>Giao nhiệm vụ, xem từng bước và đọc kết quả được lưu lại.</p><div class="roles"><span>① Điều phối</span><span>② Thực hiện</span><span>③ Kiểm tra</span></div>
-<section><form id="form"><label for="prompt">Bạn muốn đội làm gì?</label><textarea id="prompt" maxlength="4000" required placeholder="Ví dụ: Lên kế hoạch xây ứng dụng quản lý khách hàng"></textarea><select id="mode" aria-label="Chế độ"><option value="demo">Mô phỏng · không gọi AI</option value="ai">AI thật · cần khóa API, có tính phí</option></select> <button id="submit">Giao nhiệm vụ</button><p id="error" role="alert"></p></form><small>Bản đầu chỉ tạo nội dung văn bản. Bot chưa có quyền chạy lệnh, sửa mã hoặc triển khai.</small></section><h2>Nhiệm vụ gần đây</h2><div id="tasks"></div>
+<section><form id="form"><label for="prompt">Bạn muốn đội làm gì?</label><textarea id="prompt" maxlength="4000" required placeholder="Ví dụ: Lên kế hoạch xây ứng dụng quản lý khách hàng"></textarea><select id="mode" aria-label="Chế độ"><option value="demo">Mô phỏng · không gọi AI</option value="ai">AI thật · cần khóa API, có tính phí</option></select> <button id="submit">Giao nhiệm vụ</button><p id="error" role="alert"></p></form><small>Bản đầu chỉ tạo nội dung văn bản. Bot chưa có quyền chạy lệnh, sửa mã hoặc triển khai.</small></section><h2>Nhiệm vụ gần đây</h2><label for="filter">Lọc trạng thái </label><select id="filter"><option value="all">Tất cả</option><option value="running">Đang làm</option><option value="queued">Chờ</option><option value="completed">Đã chạy xong</option><option value="failed">Thất bại</option><option value="interrupted">Bị gián đoạn</option></select><p id="summary" aria-live="polite"></p><div id="tasks"></div>
 <script>
 const labels={queued:'Chờ',running:'Đang làm',completed:'Đã chạy xong',failed:'Thất bại',interrupted:'Bị gián đoạn'};
 function el(tag,text){const n=document.createElement(tag);n.textContent=text;return n}
-async function refresh(){try{const response=await fetch('/api/tasks');if(!response.ok)throw Error('Không đọc được nhiệm vụ');const data=await response.json();document.querySelector('option[value="ai"]').disabled=!data.ai_available;const root=document.querySelector('#tasks');root.replaceChildren();if(!data.tasks.length)root.append(el('p','Chưa có nhiệm vụ. Hãy thử chế độ mô phỏng.'));for(const t of data.tasks){const card=el('article','');card.append(el('h3',t.prompt),el('p',`${labels[t.status]||t.status} · ${t.stage} · ${t.mode==='demo'?'MÔ PHỎNG':'AI'} · ${new Date(t.created).toLocaleString('vi-VN')}`));for(const [key,value] of Object.entries(JSON.parse(t.output))){card.append(el('h4',({plan:'Kế hoạch',result:'Kết quả',review:'Kiểm tra'})[key]||key),el('pre',value))}root.append(card)}}catch(e){document.querySelector('#error').textContent=e.message}}
+const opened=new Set();
+async function retry(id,button){
+ if(!confirm('Chạy lại từ bước đầu? Kết quả cũ sẽ được thay thế. Chế độ AI có thể phát sinh thêm phí.'))return;
+ button.disabled=true;
+ try{const response=await fetch('/api/tasks/'+id+'/retry',{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);await refresh()}
+ catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}
+}
+async function refresh(){try{
+ const [response,teamResponse]=await Promise.all([fetch('/api/tasks'),fetch('/api/team')]);
+ if(!response.ok||!teamResponse.ok)throw Error('Không đọc được trạng thái đội bot');
+ const data=await response.json(),team=await teamResponse.json();
+ document.querySelector('option[value="ai"]').disabled=!data.ai_available;
+ const roles=document.querySelector('.roles');roles.replaceChildren();
+ for(const bot of team.bots)roles.append(el('span',bot.name+' · '+(bot.active?bot.active+' nhiệm vụ đang làm':'Rảnh')));
+ document.querySelector('#summary').textContent=Object.entries(team.totals).map(([k,v])=>(labels[k]||k)+': '+v).join(' · ')||'Chưa có nhiệm vụ';
+ const root=document.querySelector('#tasks'),filter=document.querySelector('#filter').value;root.replaceChildren();
+ const tasks=data.tasks.filter(t=>filter==='all'||t.status===filter);
+ if(!tasks.length)root.append(el('p','Không có nhiệm vụ phù hợp trong 100 nhiệm vụ gần nhất.'));
+ for(const t of tasks){
+  const card=el('article','');card.append(el('h3',t.prompt),el('p',`${labels[t.status]||t.status} · ${t.stage} · ${t.mode==='demo'?'MÔ PHỎNG':'AI'} · ${new Date(t.created).toLocaleString('vi-VN')}`));
+  const details=el('details','');details.open=opened.has(t.id);details.append(el('summary','Chi tiết và kết quả'));
+  details.addEventListener('toggle',()=>{if(details.isConnected){if(details.open)opened.add(t.id);else opened.delete(t.id)}});
+  details.append(el('small','Mã nhiệm vụ: '+t.id));
+  const outputs=Object.entries(JSON.parse(t.output));
+  if(!outputs.length)details.append(el('p','Chưa có kết quả.'));
+  for(const [key,value] of outputs)details.append(el('h4',({plan:'Kế hoạch',result:'Kết quả',review:'Kiểm tra'})[key]||key),el('pre',value));
+  card.append(details);
+  if(['failed','interrupted'].includes(t.status)){const button=el('button','Chạy lại từ đầu');button.onclick=()=>retry(t.id,button);card.append(button)}
+  root.append(card);
+ }
+ }catch(e){document.querySelector('#error').textContent=e.message}}
+document.querySelector('#filter').onchange=refresh;
 document.querySelector('#form').onsubmit=async e=>{e.preventDefault();const button=document.querySelector('#submit');button.disabled=true;try{const r=await fetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:document.querySelector('#prompt').value,mode:document.querySelector('#mode').value})});const data=await r.json();if(!r.ok)throw Error(data.error);document.querySelector('#error').textContent='';document.querySelector('#prompt').value='';await refresh()}catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}};refresh();setInterval(refresh,2000);
 </script></html>
