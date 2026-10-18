@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TypedDict
 from artifacts import parse_files, zip_files
+from maintenance import ollama_health, backup_database
 from langgraph.graph import StateGraph, START, END
 
 TASK_QUEUE = queue.Queue()
@@ -111,6 +112,28 @@ def product_diff(task_id):
             diff = '(Chỉ thay đổi kiểu hoặc ký tự xuống dòng.)'
         changes.append({'path':path, 'kind':kind, 'diff':diff})
     return 200, {'parent_id':source['parent_id'], 'changes':changes}
+
+
+TASK_STATUSES = ('queued','running','completed','needs_review','failed','interrupted','approved','cancelled')
+
+
+def list_tasks(query='', status='all', offset=0):
+    if len(query) > 200 or status not in ('all', *TASK_STATUSES) or not 0 <= offset <= 1_000_000:
+        raise ValueError('Bộ lọc không hợp lệ')
+    clauses, params = [], []
+    if query.strip():
+        clauses.append('(instr(casefold(prompt), ?) > 0 OR instr(casefold(id), ?) > 0)')
+        params += [query.strip().casefold(), query.strip().casefold()]
+    if status != 'all':
+        clauses.append('status=?')
+        params.append(status)
+    where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
+    with connect() as db:
+        db.create_function('casefold', 1, lambda text: (text or '').casefold())
+        total = db.execute('SELECT COUNT(*) FROM tasks'+where, params).fetchone()[0]
+        rows = db.execute('SELECT * FROM tasks'+where+' ORDER BY created DESC, id DESC LIMIT 50 OFFSET ?', [*params, offset]).fetchall()
+    return {'tasks':[public_task(row) for row in rows], 'total':total, 'offset':offset, 'limit':50,
+            'ai_available':bool(os.environ.get('OPENAI_API_KEY')), 'ollama_model':os.environ.get('OLLAMA_MODEL','qwen3:4b')}
 
 
 def update(task_id, **fields):
@@ -437,6 +460,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.allowed_request():
             return
+        parsed_url = urllib.parse.urlsplit(self.path)
+        if parsed_url.path == '/api/tasks':
+            try:
+                query = urllib.parse.parse_qs(parsed_url.query)
+                result = list_tasks(query.get('q',[''])[0], query.get('status',['all'])[0], int(query.get('offset',['0'])[0]))
+            except ValueError:
+                return self.respond(400, {'error':'Bộ lọc tìm kiếm không hợp lệ'})
+            return self.respond(200, result)
         if self.path == '/api/session':
             return self.respond(200, {'token':CSRF_TOKEN})
         if self.path == '/':
@@ -445,6 +476,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, {'content':get_memory()})
         if self.path == '/api/team':
             return self.respond(200, team_status())
+        if self.path == '/api/health':
+            return self.respond(200, {'ollama':ollama_health(os.environ.get('OLLAMA_BASE_URL','http://127.0.0.1:11434'),
+                                   os.environ.get('OLLAMA_MODEL','qwen3:4b')),
+                                   'openai_configured':bool(os.environ.get('OPENAI_API_KEY'))})
         if self.path.startswith('/api/tasks/') and self.path.endswith('/diff'):
             parts = self.path.split('/')
             if len(parts) != 5:
@@ -505,14 +540,24 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as db:
                 row = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
             return self.respond(200, public_task(row)) if row else self.respond(404, {'error':'Không tìm thấy nhiệm vụ'})
-        if self.path == '/api/tasks':
-            with connect() as db:
-                tasks = [public_task(row) for row in db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 100')]
-            return self.respond(200, {'tasks':tasks, 'ai_available':bool(os.environ.get('OPENAI_API_KEY')), 'ollama_model':os.environ.get('OLLAMA_MODEL', 'qwen3:4b')})
         self.respond(404, {'error':'Không tìm thấy'})
 
     def do_POST(self):
         if not self.allowed_request(writing=True):
+            return
+        if self.path == '/api/backup':
+            source = connect()
+            try:
+                payload = backup_database(source)
+            finally:
+                source.close()
+            stamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+            self.send_response(200)
+            self.send_header('Content-Type','application/zip')
+            self.send_header('Content-Disposition',f'attachment; filename="bao-mat-backup-{stamp}.zip"')
+            self.send_header('Content-Length', str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
             return
         if self.path == '/api/memory':
             try:

@@ -260,3 +260,30 @@ Nếu requirements.txt đổi, tự cập nhật phụ thuộc bằng Python tro
 Nếu cài thư viện thất bại, mã có thể đã được cập nhật; chạy cai-dat.bat để
 khắc phục trước khi mở app. Cuối cùng chọn Y để mở đội bot hoặc N để đóng.
 Giữ Ollama chạy nền, tải lại trình duyệt bằng Ctrl+F5 sau khi khởi động app.
+
+## Tìm kiếm, kết nối và sao lưu
+
+- **Tìm nhiệm vụ:** tìm trong yêu cầu hoặc mã nhiệm vụ trên toàn bộ SQLite,
+  kết hợp bộ lọc trạng thái. Không phân biệt hoa/thường, vẫn phân biệt dấu
+  tiếng Việt; không tìm trong nội dung kết quả. Phân trang 50 việc mỗi trang.
+- **Kiểm tra Ollama:** chạy khi mở trang hoặc bấm nút, gọi `/api/tags` (không
+  sinh nội dung) để kiểm tra dịch vụ đang phản hồi và đã tải mô hình cấu hình.
+  Có mô hình không chứng minh một yêu cầu suy luận sẽ thành công. Kiểm tra
+  không thử khóa OpenAI; API chỉ cho biết khóa đã được cấu hình hay chưa.
+- **Tải bản sao lưu:** tạo ZIP gồm tasks.sqlite3 và hướng dẫn khôi phục. Dùng
+  SQLite backup API để có ảnh chụp nhất quán kể cả khi đang bật WAL. Chứa tất
+  cả lịch sử, bộ nhớ, sản phẩm và bản gốc của các phiên bản sửa; không chứa
+  mã ứng dụng, .env, môi trường ảo hoặc mô hình Ollama. Không gửi bản sao lưu
+  cho người khác nếu bên trong có dữ liệu riêng tư.
+
+Khôi phục thủ công: dừng app hoàn toàn, giữ lại cả thư mục data cũ ở nơi an
+ toàn, tạo thư mục data mới rồi giải nén tasks.sqlite3 vào đó. Không ghép cơ
+sở dữ liệu khôi phục với -wal/-shm từ bản cũ. Nếu đặt BOT_DB riêng, dùng đúng
+đường dẫn đó. Khởi động lại; nhiệm vụ chờ/đang xử lý trong bản sao sẽ được
+đánh dấu gián đoạn. Bản đầu chưa có nút khôi phục hoặc sao lưu định kỳ.
+
+API: `GET /api/tasks?q=...&status=all&offset=0` trả tasks, total, limit=50,
+offset. `GET /api/health` kiểm tra kết nối; `POST /api/backup` tải ZIP, yêu
+cầu Content-Type JSON và token phiên. Bản sao được tạo ở thư mục tạm rồi
+xóa; dữ liệu ZIP được giữ trong RAM lúc tải, phù hợp cơ sở dữ liệu cá nhân
+nhỏ. Nhiệm vụ hoàn thành sau thời điểm chụp sẽ cần bản sao lưu tiếp theo.
