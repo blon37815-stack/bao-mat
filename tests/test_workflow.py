@@ -147,5 +147,14 @@ class WorkflowTest(unittest.TestCase):
         parser.feed((app.ROOT/'index.html').read_text(encoding='utf-8'))
         self.assertEqual(parser.options, ['demo', 'ollama', 'ai'])
 
+    def test_reasoning_is_removed_from_new_and_saved_results(self):
+        self.assertEqual(app.final_answer('English reasoning</think> Kết quả tiếng Việt'), 'Kết quả tiếng Việt')
+        self.assertEqual(app.final_answer('<think>English</think> Kết quả'), 'Kết quả')
+        self.assertEqual(app.final_answer('<think>unfinished'), '')
+        self.assertEqual(app.final_answer('Tiếng Việt bình thường'), 'Tiếng Việt bình thường')
+        app.update('test', output=json.dumps({'plan': 'English</think> Kế hoạch'}))
+        self.assertEqual(json.loads(app.public_task(self.row())['output'])['plan'], 'Kế hoạch')
+        self.assertIn('English', self.row()['output'])
+
 if __name__ == '__main__':
     unittest.main()

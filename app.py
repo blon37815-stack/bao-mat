@@ -1,5 +1,6 @@
 """Local agent team dashboard. Run: python app.py"""
 import json
+import re
 import os
 import sqlite3
 import threading
@@ -40,10 +41,26 @@ class State(TypedDict, total=False):
     review: str
 
 
+def final_answer(text):
+    """Remove explicit reasoning sections, including Qwen's orphan closing tag."""
+    if '</think>' in text:
+        text = text.rsplit('</think>', 1)[1]
+    # An unfinished reasoning block must not be shown as a final answer.
+    text = re.sub(r'<think>.*', '', text, flags=re.DOTALL)
+    return text.strip()
+
+
+def public_task(row):
+    task = dict(row)
+    task['output'] = json.dumps({key: final_answer(value) for key, value in
+        json.loads(task['output']).items()}, ensure_ascii=False)
+    return task
+
+
 def ollama_reply(messages):
     """Use the local Ollama HTTP API; no API key or cloud fallback."""
     payload = {'model': os.environ.get('OLLAMA_MODEL', 'qwen3:4b'),
-               'messages': messages, 'stream': False, 'think': False}
+               'messages': [dict(message, content=message['content'] + ('\n/no_think' if message['role'] == 'user' else '')) for message in messages], 'stream': False, 'think': False}
     base = os.environ.get('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
     request = urllib.request.Request(base+'/api/chat',
         data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})
@@ -51,7 +68,10 @@ def ollama_reply(messages):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     with opener.open(request, timeout=600) as response:
         content = json.load(response)['message']['content']
-    if not isinstance(content, str) or not content.strip():
+    if not isinstance(content, str):
+        raise ValueError('Invalid Ollama response')
+    content = final_answer(content)
+    if not content:
         raise ValueError('Empty Ollama response')
     return content
 
@@ -68,7 +88,7 @@ def build_graph():
             else:
                 from openai import OpenAI
                 context = {k: state[k] for k in ('prompt', 'plan', 'result') if k in state}
-                messages = [{'role':'system','content':instruction+' Trả lời bằng tiếng Việt. Bạn chỉ tạo văn bản, không có công cụ thực thi.'},
+                messages = [{'role':'system','content':instruction+' Chỉ trả lời kết quả cuối cùng bằng tiếng Việt rõ ràng, ngắn gọn. Không trình bày quá trình suy nghĩ hoặc tự đối thoại. Bạn chỉ tạo văn bản, không có công cụ thực thi.'},
                             {'role':'user','content':json.dumps(context, ensure_ascii=False)}]
                 if state['mode'] == 'ollama':
                     output = ollama_reply(messages)
@@ -76,6 +96,9 @@ def build_graph():
                     response = OpenAI(timeout=90, max_retries=1).chat.completions.create(
                         model=os.environ.get('BOT_MODEL', 'gpt-4.1-mini'), messages=messages)
                     output = response.choices[0].message.content or ''
+            output = final_answer(output)
+            if not output:
+                raise ValueError('No final answer')
             partial = {k: state[k] for k, _, _ in ROLES if k in state}
             partial[key] = output
             update(state['id'], output=json.dumps(partial, ensure_ascii=False))
@@ -144,10 +167,10 @@ class Handler(BaseHTTPRequestHandler):
             task_id = self.path.removeprefix('/api/tasks/')
             with connect() as db:
                 row = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
-            return self.respond(200, dict(row)) if row else self.respond(404, {'error':'Không tìm thấy nhiệm vụ'})
+            return self.respond(200, public_task(row)) if row else self.respond(404, {'error':'Không tìm thấy nhiệm vụ'})
         if self.path == '/api/tasks':
             with connect() as db:
-                tasks = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 100')]
+                tasks = [public_task(row) for row in db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 100')]
             return self.respond(200, {'tasks':tasks, 'ai_available':bool(os.environ.get('OPENAI_API_KEY')), 'ollama_model':os.environ.get('OLLAMA_MODEL', 'qwen3:4b')})
         self.respond(404, {'error':'Không tìm thấy'})
 
