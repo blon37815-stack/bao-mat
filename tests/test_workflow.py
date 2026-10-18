@@ -76,7 +76,7 @@ class WorkflowTest(unittest.TestCase):
             with urllib.request.urlopen(memory_request) as response:
                 self.assertTrue(json.load(response)['saved'])
             self.assertEqual(get('/api/memory')['content'], 'Dự án tiếng Việt')
-            create_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thử bộ nhớ','mode':'demo'}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
+            create_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thử bộ nhớ','mode':'demo','product':True}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
             with urllib.request.urlopen(create_request) as response:
                 new_id = json.load(response)['id']
             for _ in range(100):
@@ -86,6 +86,13 @@ class WorkflowTest(unittest.TestCase):
                 time.sleep(.02)
             self.assertEqual(new_task['project_memory'], 'Dự án tiếng Việt')
             self.assertEqual(new_task['status'], 'completed')
+            self.assertTrue(new_task['product'])
+            self.assertEqual(get('/api/tasks/'+new_id+'/files')['files'][0]['path'], 'README.md')
+            import io, zipfile
+            with urllib.request.urlopen(base+'/api/tasks/'+new_id+'/artifact.zip') as response:
+                self.assertEqual(response.headers['Content-Type'], 'application/zip')
+                with zipfile.ZipFile(io.BytesIO(response.read())) as archive:
+                    self.assertIn('mô phỏng', archive.read('README.md').decode('utf-8'))
             with self.assertRaises(urllib.error.HTTPError) as error:
                 get('/api/tasks/missing')
             self.assertEqual(error.exception.code, 404)
@@ -367,6 +374,21 @@ class WorkflowTest(unittest.TestCase):
     def test_demo_cannot_be_approved(self):
         app.run('test','Mô phỏng','demo')
         self.assertEqual(app.task_action('test','approve')[0], 409)
+
+    def test_product_validation_triggers_repair_and_blocks_bad_approval(self):
+        with app.connect() as db:
+            db.execute('INSERT INTO task_products VALUES (?,1)', ('test',))
+        bad = json.dumps({'files':[{'path':'../../bad','content':'x'}]})
+        good = json.dumps({'files':[{'path':'main.py','content':'print("Hi")'}]})
+        responses = ['Kế hoạch', bad, '{"passed":true,"issues":[]}', good, '{"passed":true,"issues":[]}']
+        with patch.object(app, 'ollama_reply', side_effect=responses):
+            app.run('test','Tạo app','ollama')
+        self.assertEqual(self.row()['status'], 'completed')
+        self.assertEqual(app.product_files('test')[1]['files'][0]['path'], 'main.py')
+        app.update('test', mode='ollama', output=json.dumps({'result':bad}))
+        self.assertEqual(app.task_action('test','approve')[0], 409)
+        self.assertEqual(app.product_files('test')[0], 409)
+        self.assertEqual(app.product_files('missing')[0], 404)
 
 if __name__ == '__main__':
     unittest.main()

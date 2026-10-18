@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TypedDict
+from artifacts import parse_files, zip_files
 from langgraph.graph import StateGraph, START, END
 
 TASK_QUEUE = queue.Queue()
@@ -34,6 +35,7 @@ def connect():
     db.execute('CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, prompt TEXT, mode TEXT, status TEXT, stage TEXT, output TEXT, created TEXT)')
     db.execute('CREATE TABLE IF NOT EXISTS project_memory (id INTEGER PRIMARY KEY CHECK(id=1), content TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_memory (task_id TEXT PRIMARY KEY, content TEXT NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS task_products (task_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL)')
     return db
 
 
@@ -52,6 +54,26 @@ def save_memory(content):
 
 def snapshot_memory(db, task_id):
     db.execute("INSERT INTO task_memory SELECT ?, COALESCE((SELECT content FROM project_memory WHERE id=1),'')", (task_id,))
+
+
+def is_product(task_id):
+    with connect() as db:
+        row = db.execute('SELECT enabled FROM task_products WHERE task_id=?', (task_id,)).fetchone()
+    return bool(row and row['enabled'])
+
+
+def product_files(task_id):
+    with connect() as db:
+        row = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
+    if row is None or not is_product(task_id):
+        return 404, {'error':'Không tìm thấy bộ sản phẩm'}
+    if row['status'] not in ('completed','needs_review','approved'):
+        return 409, {'error':'Chờ nhiệm vụ kết thúc trước khi tải bộ tệp'}
+    try:
+        files = parse_files(json.loads(row['output']).get('result', ''))
+    except ValueError as error:
+        return 409, {'error':str(error)}
+    return 200, {'files':files, 'mode':row['mode'], 'status':row['status']}
 
 
 def task_context(task_id):
@@ -85,6 +107,11 @@ def task_action(task_id, action):
         if action == 'cancel':
             changed = db.execute("UPDATE tasks SET status='cancelled', stage='Đã hủy; phản hồi đang tính sẽ bị bỏ qua' WHERE id=? AND status IN ('queued','running')", (task_id,)).rowcount
         elif action == 'approve':
+            if is_product(task_id):
+                try:
+                    parse_files(json.loads(row['output']).get('result',''))
+                except ValueError:
+                    return 409, {'error':'Bộ tệp chưa hợp lệ; chưa thể duyệt'}
             if row['mode'] == 'demo' or not json.loads(row['output']).get('result'):
                 return 409, {'error':'Không thể duyệt mô phỏng hoặc nhiệm vụ chưa có kết quả'}
             changed = db.execute("UPDATE tasks SET status='approved', stage='Người dùng đã duyệt kết quả' WHERE id=? AND status IN ('completed','needs_review')", (task_id,)).rowcount
@@ -100,6 +127,7 @@ class State(TypedDict, total=False):
     plan: str
     result: str
     review: str
+    product: bool
     project_memory: str
     attempts: int
     verdict: str
@@ -122,6 +150,7 @@ def final_answer(text):
 
 def public_task(row):
     task = dict(row)
+    task['product'] = is_product(task['id'])
     task['project_memory'] = task_context(task['id'])
     task['output'] = json.dumps({key: final_answer(value) for key, value in
         json.loads(task['output']).items()}, ensure_ascii=False)
@@ -192,6 +221,8 @@ def build_graph():
                     role_instruction += ' Chỉ xuất JSON hợp lệ: {"passed":true,"issues":[]} nếu đạt; nếu chưa đạt dùng passed=false và issues là danh sách lỗi cụ thể bằng tiếng Việt. Không tuyên bố đã thực thi hay kiểm thử mã. Không có văn bản ngoài JSON.'
                 elif key == 'result' and state.get('review'):
                     role_instruction += ' Sửa kết quả trước theo các lỗi trong review, giữ đầy đủ yêu cầu ban đầu.'
+                if key == 'result' and state.get('product'):
+                    role_instruction += ' Tạo bộ mã nguồn nhỏ theo yêu cầu, kèm README.md hướng dẫn chạy. Chỉ xuất JSON: {"files":[{"path":"README.md","content":"..."}]}. Tối đa 30 tệp văn bản, dùng đường dẫn tương đối với dấu /, không dùng .., không tạo .git hay .venv. Nội dung giao diện và tài liệu bằng tiếng Việt; mã dùng cú pháp đúng ngôn ngữ. Không có văn bản ngoài JSON.'
                 messages = [{'role':'system','content':role_instruction+' Chỉ trả lời kết quả cuối cùng bằng tiếng Việt rõ ràng, ngắn gọn. Không trình bày quá trình suy nghĩ hoặc tự đối thoại. Bạn chỉ tạo văn bản, không có công cụ thực thi.'},
                             {'role':'user','content':json.dumps(context, ensure_ascii=False)}]
                 if state['mode'] == 'ollama':
@@ -200,6 +231,13 @@ def build_graph():
                     response = OpenAI(timeout=90, max_retries=1).chat.completions.create(
                         model=os.environ.get('BOT_MODEL', 'gpt-4.1-mini'), messages=messages)
                     output = response.choices[0].message.content or ''
+            if state.get('product') and state['mode'] == 'demo' and key == 'result':
+                output = json.dumps({'files':[{'path':'README.md','content':'# Sản phẩm mô phỏng\nChưa gọi AI hay tạo dự án thực tế.'}]}, ensure_ascii=False)
+            if key == 'review' and state.get('product'):
+                try:
+                    parse_files(state.get('result',''))
+                except ValueError as error:
+                    output = json.dumps({'passed':False,'issues':[str(error)]}, ensure_ascii=False)
             output = final_answer(output)
             if not output:
                 raise ValueError('No final answer')
@@ -222,7 +260,7 @@ def build_graph():
 def run(task_id, prompt, mode):
     try:
         worker_update(task_id, status='running')
-        result = build_graph().invoke({'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id)})
+        result = build_graph().invoke({'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id), 'product':is_product(task_id)})
         if mode == 'demo':
             worker_update(task_id, status='completed', stage='Hoàn thành mô phỏng')
         elif result.get('verdict') == 'passed':
@@ -364,6 +402,21 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, {'content':get_memory()})
         if self.path == '/api/team':
             return self.respond(200, team_status())
+        if self.path.startswith('/api/tasks/') and self.path.rsplit('/',1)[-1] in ('files','artifact.zip'):
+            parts = self.path.split('/')
+            if len(parts) != 5 or not re.fullmatch(r'[a-zA-Z0-9_-]+', parts[3]):
+                return self.respond(404, {'error':'Không tìm thấy'})
+            status, product = product_files(parts[3])
+            if status != 200 or parts[4] == 'files':
+                return self.respond(status, product)
+            payload = zip_files(product['files'])
+            self.send_response(200)
+            self.send_header('Content-Type','application/zip')
+            self.send_header('Content-Disposition','attachment; filename="product-'+parts[3]+'.zip"')
+            self.send_header('Content-Length',str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if self.path.startswith('/api/tasks/') and '/export/' in self.path:
             parts = self.path.split('/')
             if len(parts) != 6 or not re.fullmatch(r'[a-zA-Z0-9_-]+', parts[3]):
@@ -420,6 +473,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError()
             data = json.loads(self.rfile.read(length))
             prompt, mode = data.get('prompt'), data.get('mode', 'demo')
+            product = data.get('product', False)
+            if type(product) is not bool:
+                raise ValueError()
             if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000 or mode not in ('demo','ai','ollama'):
                 raise ValueError()
         except (ValueError, TypeError, AttributeError):
@@ -430,6 +486,7 @@ class Handler(BaseHTTPRequestHandler):
         with connect() as db:
             db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', (task_id, prompt.strip(), mode, 'queued', 'Chờ', '{}', datetime.now(timezone.utc).isoformat()))
             snapshot_memory(db, task_id)
+            db.execute('INSERT INTO task_products VALUES (?,?)', (task_id, int(product)))
         enqueue_task(task_id, prompt.strip(), mode)
         self.respond(201, {'id':task_id})
 

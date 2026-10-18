@@ -192,3 +192,31 @@ Chế độ mô phỏng không chạy vòng sửa. Nút duyệt và hủy chưa 
 API: `POST /api/tasks/{id}/cancel`, `POST /api/tasks/{id}/approve`, dùng JSON
 Content-Type và token phiên như các API ghi khác. Trả 200 khi thành công,
 409 khi trạng thái không cho phép, 404 khi không tìm thấy.
+
+## Tạo bộ mã nguồn và tải ZIP
+
+Đánh dấu **Tạo bộ mã nguồn có thể tải ZIP**, chọn Ollama hoặc OpenAI và mô tả
+một sản phẩm nhỏ, ví dụ: "Tạo trang ghi chú bằng HTML/CSS/JavaScript thuần,
+lưu localStorage, kèm README hướng dẫn mở trang". Giữ yêu cầu nhỏ khi dùng
+qwen3:4b. Trong chế độ mô phỏng, sản phẩm chỉ có README được ghi rõ mô phỏng.
+
+Mô hình trả JSON `{"files":[{"path":"README.md","content":"..."}]}`.
+Các tệp được lưu trong kết quả SQLite, không ghi vào cây thư mục máy chủ.
+Khi nhiệm vụ kết thúc, bấm **Xem bộ tệp** để chọn và đọc nội dung, hoặc
+**Tải mã nguồn ZIP**. ZIP được tạo trong bộ nhớ từ dữ liệu đã kiểm tra. Chưa
+có tự chạy, cài phụ thuộc hoặc xác minh sản phẩm hoạt động; AI đánh giá đạt
+không bảo đảm mã an toàn hay chạy đúng. Đọc mã trước khi dùng và chạy mã chưa
+tin cậy trong môi trường cô lập. Giữ bản ZIP nếu cần lịch sử, vì chạy lại
+nhiệm vụ sẽ thay thế kết quả cũ.
+
+Giới hạn: 30 tệp văn bản, 100 KB mỗi tệp, tổng 1 MB nội dung UTF-8; không có
+tệp nhị phân. Từ chối đường dẫn tuyệt đối, `..`, dấu gạch chéo ngược, ký tự
+đặc biệt Windows, tên thiết bị dành riêng, đường dẫn trùng không phân biệt
+hoa/thường, xung đột tệp/thư mục, thư mục .git và .venv. Nếu bộ tệp không hợp
+lệ, vòng kiểm tra yêu cầu sửa tối đa hai lần; vẫn lỗi thì không tải hoặc duyệt
+được bộ mã. Các quy tắc đường dẫn không phải kiểm tra độ an toàn nội dung mã.
+
+API thêm: `GET /api/tasks/{id}/files` trả danh sách tệp; `GET
+/api/tasks/{id}/artifact.zip` tải ZIP. Chỉ dùng khi nhiệm vụ sản phẩm đã kết
+thúc ở completed/needs_review/approved. Khi tạo nhiệm vụ, đặt `product:true`
+trong JSON; mặc định false để giữ quy trình văn bản cũ.
