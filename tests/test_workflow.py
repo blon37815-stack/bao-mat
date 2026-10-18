@@ -72,6 +72,20 @@ class WorkflowTest(unittest.TestCase):
                 return json.load(response)
         try:
             self.assertEqual(get('/api/tasks/test')['id'], 'test')
+            memory_request = urllib.request.Request(base+'/api/memory', data=json.dumps({'content':'Dự án tiếng Việt'}).encode(), headers={'Content-Type':'application/json'})
+            with urllib.request.urlopen(memory_request) as response:
+                self.assertTrue(json.load(response)['saved'])
+            self.assertEqual(get('/api/memory')['content'], 'Dự án tiếng Việt')
+            create_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thử bộ nhớ','mode':'demo'}).encode(), headers={'Content-Type':'application/json'})
+            with urllib.request.urlopen(create_request) as response:
+                new_id = json.load(response)['id']
+            for _ in range(100):
+                new_task = get('/api/tasks/'+new_id)
+                if new_task['status'] == 'completed':
+                    break
+                time.sleep(.02)
+            self.assertEqual(new_task['project_memory'], 'Dự án tiếng Việt')
+            self.assertEqual(new_task['status'], 'completed')
             with self.assertRaises(urllib.error.HTTPError) as error:
                 get('/api/tasks/missing')
             self.assertEqual(error.exception.code, 404)
@@ -86,7 +100,7 @@ class WorkflowTest(unittest.TestCase):
                 time.sleep(.02)
             self.assertEqual(task['status'], 'completed')
             self.assertEqual(len(json.loads(task['output'])), 3)
-            self.assertEqual(get('/api/team')['totals']['completed'], 1)
+            self.assertEqual(get('/api/team')['totals']['completed'], 2)
             with urllib.request.urlopen(base+'/api/tasks/test/export/all') as response:
                 self.assertIn('attachment', response.headers['Content-Disposition'])
                 self.assertIn('text/markdown', response.headers['Content-Type'])
@@ -181,6 +195,38 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn('Kết quả một phần', body.decode('utf-8'))
         self.assertEqual(app.export_task('test', 'result')[0], 409)
+
+    def test_memory_snapshots_survive_changes_and_restart(self):
+        app.save_memory('Mục tiêu: ứng dụng tiếng Việt')
+        with app.connect() as db:
+            app.snapshot_memory(db, 'test')
+        app.save_memory('Yêu cầu mới')
+        self.assertEqual(app.get_memory(), 'Yêu cầu mới')
+        app.recover()
+        self.assertEqual(app.task_context('test'), 'Mục tiêu: ứng dụng tiếng Việt')
+        self.assertEqual(app.public_task(self.row())['project_memory'], 'Mục tiêu: ứng dụng tiếng Việt')
+        app.save_memory('')
+        self.assertEqual(app.get_memory(), '')
+        self.assertNotEqual(app.task_context('test'), '')
+
+    def test_memory_is_sent_to_every_role(self):
+        app.save_memory('Dùng SQLite')
+        with app.connect() as db:
+            app.snapshot_memory(db, 'test')
+        with patch.object(app, 'ollama_reply', return_value='Kết quả') as model:
+            app.run('test', 'Lập kế hoạch', 'ollama')
+        self.assertEqual(model.call_count, 3)
+        for call in model.call_args_list:
+            context = json.loads(call.args[0][1]['content'])
+            self.assertEqual(context['project_memory'], 'Dùng SQLite')
+        self.assertEqual(self.row()['status'], 'completed')
+
+    def test_memory_rejects_invalid_input(self):
+        app.save_memory('Giữ nguyên')
+        for value in (None, 12, 'x'*8001):
+            with self.assertRaises(ValueError):
+                app.save_memory(value)
+        self.assertEqual(app.get_memory(), 'Giữ nguyên')
 
 if __name__ == '__main__':
     unittest.main()

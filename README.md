@@ -95,3 +95,19 @@ như trên giao diện. Tải xuống không gọi mô hình và không phát si
 API: `GET /api/tasks/{id}/export/{all|plan|result|review}`. Trả về 409 khi
 chưa có nội dung cho phần được yêu cầu, 404 khi không tìm thấy. Bản này xuất
 nội dung văn bản thành Markdown, chưa tạo và thực thi dự án mã nguồn.
+
+## Bộ nhớ dự án
+
+Điền mục tiêu, yêu cầu và quyết định chung vào **Bộ nhớ dự án**, bấm **Lưu bộ
+nhớ** rồi giao nhiệm vụ. Giới hạn 8000 ký tự, lưu trong cùng SQLite nên giữ
+lại khi đóng app. Không lưu mật khẩu, khóa API hay thông tin nhạy cảm.
+Bộ nhớ được gửi kèm cả ba bước đến nhà cung cấp bạn chọn; Ollama mặc định
+chạy trên máy bạn. Đây là thông tin chung do bạn nhập, chưa tự học từ lịch sử.
+
+Mỗi nhiệm vụ mới giữ một bản sao bộ nhớ lúc tạo. Xem bản sao trong chi tiết
+hoặc báo cáo Markdown. Sửa bộ nhớ chung chỉ ảnh hưởng nhiệm vụ mới; chạy lại
+nhiệm vụ dùng bản sao cũ. Nhiệm vụ tạo trước phiên bản này có bộ nhớ trống.
+Để xóa bộ nhớ chung, để trống và lưu; các bản sao trong lịch sử vẫn được giữ.
+Bản đầu hỗ trợ một bộ nhớ chung, chưa phân tách nhiều dự án.
+
+API: `GET /api/memory`, `POST /api/memory` với JSON `{"content":"..."}`.

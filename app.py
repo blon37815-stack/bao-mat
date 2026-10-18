@@ -24,7 +24,32 @@ def connect():
     db = sqlite3.connect(DB)
     db.row_factory = sqlite3.Row
     db.execute('CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, prompt TEXT, mode TEXT, status TEXT, stage TEXT, output TEXT, created TEXT)')
+    db.execute('CREATE TABLE IF NOT EXISTS project_memory (id INTEGER PRIMARY KEY CHECK(id=1), content TEXT NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS task_memory (task_id TEXT PRIMARY KEY, content TEXT NOT NULL)')
     return db
+
+
+def get_memory():
+    with connect() as db:
+        row = db.execute('SELECT content FROM project_memory WHERE id=1').fetchone()
+    return row['content'] if row else ''
+
+
+def save_memory(content):
+    if not isinstance(content, str) or len(content) > 8000:
+        raise ValueError('Bộ nhớ tối đa 8000 ký tự')
+    with connect() as db:
+        db.execute('INSERT INTO project_memory VALUES (1,?) ON CONFLICT(id) DO UPDATE SET content=excluded.content', (content.strip(),))
+
+
+def snapshot_memory(db, task_id):
+    db.execute("INSERT INTO task_memory SELECT ?, COALESCE((SELECT content FROM project_memory WHERE id=1),'')", (task_id,))
+
+
+def task_context(task_id):
+    with connect() as db:
+        row = db.execute('SELECT content FROM task_memory WHERE task_id=?', (task_id,)).fetchone()
+    return row['content'] if row else ''
 
 
 def update(task_id, **fields):
@@ -39,6 +64,7 @@ class State(TypedDict, total=False):
     plan: str
     result: str
     review: str
+    project_memory: str
 
 
 def final_answer(text):
@@ -52,6 +78,7 @@ def final_answer(text):
 
 def public_task(row):
     task = dict(row)
+    task['project_memory'] = task_context(task['id'])
     task['output'] = json.dumps({key: final_answer(value) for key, value in
         json.loads(task['output']).items()}, ensure_ascii=False)
     return task
@@ -87,7 +114,7 @@ def build_graph():
                           'review': 'Luồng ba bước đã chạy. Nội dung là mô phỏng, chưa chứng minh nhiệm vụ thực tế hoàn thành.'}[key]
             else:
                 from openai import OpenAI
-                context = {k: state[k] for k in ('prompt', 'plan', 'result') if k in state}
+                context = {k: state[k] for k in ('prompt', 'project_memory', 'plan', 'result') if k in state}
                 messages = [{'role':'system','content':instruction+' Chỉ trả lời kết quả cuối cùng bằng tiếng Việt rõ ràng, ngắn gọn. Không trình bày quá trình suy nghĩ hoặc tự đối thoại. Bạn chỉ tạo văn bản, không có công cụ thực thi.'},
                             {'role':'user','content':json.dumps(context, ensure_ascii=False)}]
                 if state['mode'] == 'ollama':
@@ -114,7 +141,7 @@ def build_graph():
 def run(task_id, prompt, mode):
     try:
         update(task_id, status='running')
-        build_graph().invoke({'id':task_id, 'prompt':prompt, 'mode':mode})
+        build_graph().invoke({'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id)})
         update(task_id, status='completed', stage='Hoàn thành luồng')
     except Exception:
         # Do not persist provider errors that might contain credentials or request data.
@@ -165,6 +192,8 @@ def export_task(task_id, section):
     lines = ['# Nhiệm vụ đội bot', '', task['prompt'], '',
              'Mã nhiệm vụ: ' + task['id'], 'Chế độ: ' + task['mode'],
              'Trạng thái: ' + task['status'], 'Tạo lúc (UTC): ' + task['created'], '']
+    if task['project_memory']:
+        lines += ['## Bộ nhớ dự án khi giao việc', '', task['project_memory'], '']
     if task['mode'] == 'demo':
         lines += ['> MÔ PHỎNG: nội dung không phải kết quả AI thực hiện nhiệm vụ.', '']
     if task['status'] != 'completed':
@@ -186,6 +215,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/':
             return self.respond(200, (ROOT/'index.html').read_bytes(), 'text/html; charset=utf-8')
+        if self.path == '/api/memory':
+            return self.respond(200, {'content':get_memory()})
         if self.path == '/api/team':
             return self.respond(200, team_status())
         if self.path.startswith('/api/tasks/') and '/export/' in self.path:
@@ -214,6 +245,16 @@ class Handler(BaseHTTPRequestHandler):
         self.respond(404, {'error':'Không tìm thấy'})
 
     def do_POST(self):
+        if self.path == '/api/memory':
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= 50000:
+                    raise ValueError()
+                data = json.loads(self.rfile.read(length))
+                save_memory(data.get('content'))
+            except (ValueError, TypeError, AttributeError):
+                return self.respond(400, {'error':'Bộ nhớ phải là văn bản tối đa 8000 ký tự'})
+            return self.respond(200, {'saved':True})
         if self.path.startswith('/api/tasks/') and self.path.endswith('/retry'):
             task_id = self.path[len('/api/tasks/'):-len('/retry')]
             status, result = retry_task(task_id)
@@ -235,6 +276,7 @@ class Handler(BaseHTTPRequestHandler):
         task_id = uuid.uuid4().hex
         with connect() as db:
             db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', (task_id, prompt.strip(), mode, 'queued', 'Chờ', '{}', datetime.now(timezone.utc).isoformat()))
+            snapshot_memory(db, task_id)
         threading.Thread(target=run, args=(task_id,prompt.strip(),mode), daemon=True).start()
         self.respond(201, {'id':task_id})
 
