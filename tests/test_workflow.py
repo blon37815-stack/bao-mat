@@ -251,6 +251,14 @@ class WorkflowTest(unittest.TestCase):
                         urllib.request.urlopen(request)
                     self.assertEqual(error.exception.code, code)
             self.assertEqual(app.get_memory(), '')
+            navigation_headers = {'Sec-Fetch-Site':'cross-site','Sec-Fetch-Mode':'navigate','Sec-Fetch-Dest':'document'}
+            with urllib.request.urlopen(urllib.request.Request(base+'/', headers=navigation_headers)) as response:
+                self.assertEqual(response.status, 200)
+                self.assertIn('Đội bot', response.read().decode('utf-8'))
+            for path in ('/api/session', '/api/memory'):
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(urllib.request.Request(base+path, headers=navigation_headers))
+                self.assertEqual(error.exception.code, 403)
             request = urllib.request.Request(base+'/api/session', headers={'Origin':base})
             with urllib.request.urlopen(request) as response:
                 self.assertEqual(json.load(response)['token'], app.CSRF_TOKEN)

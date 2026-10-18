@@ -243,7 +243,11 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(403, {'error':'Host không hợp lệ'})
             return False
         origin = self.headers.get('Origin')
-        if (origin is not None and origin != 'http://' + host) or self.headers.get('Sec-Fetch-Site') == 'cross-site':
+        document_navigation = (self.command == 'GET' and self.path == '/'
+                               and self.headers.get('Sec-Fetch-Mode') == 'navigate'
+                               and self.headers.get('Sec-Fetch-Dest') == 'document')
+        if ((origin is not None and origin != 'http://' + host)
+                or (self.headers.get('Sec-Fetch-Site') == 'cross-site' and not document_navigation)):
             self.respond(403, {'error':'Chỉ nhận yêu cầu từ trang ứng dụng trên máy này'})
             return False
         if writing:
