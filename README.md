@@ -220,3 +220,32 @@ API thêm: `GET /api/tasks/{id}/files` trả danh sách tệp; `GET
 /api/tasks/{id}/artifact.zip` tải ZIP. Chỉ dùng khi nhiệm vụ sản phẩm đã kết
 thúc ở completed/needs_review/approved. Khi tạo nhiệm vụ, đặt `product:true`
 trong JSON; mặc định false để giữ quy trình văn bản cũ.
+
+## Chỉnh sửa sản phẩm qua nhiều phiên bản
+
+Ở nhiệm vụ có bộ mã hợp lệ, bấm **Yêu cầu chỉnh sửa**. Giao diện chọn bản gốc
+và đưa bạn về ô giao việc; nhập thay đổi mong muốn, chẳng hạn "Thêm tìm kiếm,
+giữ các tính năng cũ", rồi giao nhiệm vụ. Đây là nhiệm vụ mới, không ghi đè
+sản phẩm gốc. Có thể bấm **Bỏ chọn bản gốc** để trở lại tạo sản phẩm độc lập.
+
+Nhiệm vụ mới giữ bản sao bất biến của toàn bộ tệp gốc cùng chuỗi yêu cầu
+trước đó, đồng thời dùng bộ nhớ dự án hiện tại lúc giao việc. Bot phải trả
+lại toàn bộ bộ tệp, bao gồm tệp không đổi. Xem **So sánh với bản gốc** để biết
+tệp thêm/sửa/xóa, đọc diff và kiểm tra mô hình có vô tình bỏ tệp hay không.
+Việc duyệt vẫn do bạn thực hiện; so sánh không xác minh chức năng chạy đúng.
+Mỗi nhiệm vụ ghi mã bản gốc trong chi tiết và báo cáo Markdown. Các bản có
+thể nằm ngoài 100 nhiệm vụ mới nhất nhưng vẫn được lưu trong SQLite.
+
+Trong **Xem bộ tệp**, chọn một tệp và bấm **Tải [tên tệp]** để tải riêng; mã
+được tải như tệp đính kèm, không được thực thi hoặc hiển thị như trang HTML
+trên máy chủ. Tải ZIP vẫn giữ nguyên cấu trúc thư mục.
+
+Để giữ ngữ cảnh vừa phải, bản đầu chỉ nhận chỉnh sửa bộ mã gốc tối đa 80 KB
+JSON UTF-8 và chuỗi yêu cầu trước đó tối đa 12000 ký tự. Mô hình nhỏ vẫn có
+thể không giữ hết nội dung; ưu tiên sản phẩm nhỏ và kiểm tra diff sau mỗi
+lần sửa. Giới hạn này không phải cam kết về dung lượng ngữ cảnh mô hình.
+
+API: khi `POST /api/tasks`, thêm `parent_id` của nhiệm vụ sản phẩm đã kết
+thúc và có bộ tệp hợp lệ; server tự bật `product:true`. Nguồn sai trả 404/409,
+nguồn quá lớn trả 413. `GET /api/tasks/{id}/diff` trả thay đổi so với bản sao
+gốc; `GET /api/tasks/{id}/file/{index}` tải một tệp trong danh sách files.

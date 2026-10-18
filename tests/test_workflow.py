@@ -88,6 +88,29 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(new_task['status'], 'completed')
             self.assertTrue(new_task['product'])
             self.assertEqual(get('/api/tasks/'+new_id+'/files')['files'][0]['path'], 'README.md')
+            with urllib.request.urlopen(base+'/api/tasks/'+new_id+'/file/0') as response:
+                self.assertIn('attachment', response.headers['Content-Disposition'])
+                self.assertIn('mô phỏng', response.read().decode('utf-8'))
+            child_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thêm hướng dẫn','mode':'demo','parent_id':new_id}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
+            with urllib.request.urlopen(child_request) as response:
+                child_id = json.load(response)['id']
+            for _ in range(100):
+                child = get('/api/tasks/'+child_id)
+                if child['status']=='completed':
+                    break
+                time.sleep(.02)
+            self.assertEqual(child['parent_id'], new_id)
+            self.assertTrue(child['product'])
+            self.assertEqual(get('/api/tasks/'+child_id+'/diff')['changes'], [])
+            for path in ('/api/tasks/'+new_id+'/file/99','/api/tasks/'+new_id+'/file/../app.py'):
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    get(path)
+                self.assertEqual(error.exception.code, 404)
+            invalid = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Edit','mode':'demo','parent_id':'missing'}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
+            with self.assertRaises(urllib.error.HTTPError) as error:
+                urllib.request.urlopen(invalid)
+            self.assertEqual(error.exception.code, 404)
+
             import io, zipfile
             with urllib.request.urlopen(base+'/api/tasks/'+new_id+'/artifact.zip') as response:
                 self.assertEqual(response.headers['Content-Type'], 'application/zip')
@@ -107,7 +130,7 @@ class WorkflowTest(unittest.TestCase):
                 time.sleep(.02)
             self.assertEqual(task['status'], 'completed')
             self.assertEqual(len(json.loads(task['output'])), 3)
-            self.assertEqual(get('/api/team')['totals']['completed'], 2)
+            self.assertEqual(get('/api/team')['totals']['completed'], 3)
             with urllib.request.urlopen(base+'/api/tasks/test/export/all') as response:
                 self.assertIn('attachment', response.headers['Content-Disposition'])
                 self.assertIn('text/markdown', response.headers['Content-Type'])
@@ -389,6 +412,35 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(app.task_action('test','approve')[0], 409)
         self.assertEqual(app.product_files('test')[0], 409)
         self.assertEqual(app.product_files('missing')[0], 404)
+
+    def test_revision_uses_immutable_snapshot_in_each_role(self):
+        source = [{'path':'main.py','content':'print("old")'}]
+        with app.connect() as db:
+            db.execute('INSERT INTO task_products VALUES (?,1)', ('test',))
+            db.execute('INSERT INTO task_sources VALUES (?,?,?,?)', ('test','parent',json.dumps(source),'Tạo ứng dụng'))
+        product = json.dumps({'files':[{'path':'main.py','content':'print("new")'}]})
+        with patch.object(app, 'ollama_reply', side_effect=['Kế hoạch',product,'{"passed":true,"issues":[]}']) as model:
+            app.run('test','Sửa lời chào','ollama')
+        for call in model.call_args_list:
+            context = json.loads(call.args[0][1]['content'])
+            self.assertEqual(context['source_files'], source)
+            self.assertEqual(context['original_request'], 'Tạo ứng dụng')
+        self.assertEqual(self.row()['status'], 'completed')
+        self.assertEqual(json.loads(app.task_source('test')['files']), source)
+        self.assertEqual(app.public_task(self.row())['parent_id'], 'parent')
+
+    def test_diff_reports_added_modified_deleted_and_unchanged(self):
+        before = [{'path':'keep.txt','content':'same'}, {'path':'edit.py','content':'old'}, {'path':'remove.txt','content':'gone'}]
+        after = [{'path':'keep.txt','content':'same'}, {'path':'edit.py','content':'new'}, {'path':'add.txt','content':'new file'}]
+        with app.connect() as db:
+            db.execute('INSERT INTO task_products VALUES (?,1)', ('test',))
+            db.execute('INSERT INTO task_sources VALUES (?,?,?,?)', ('test','parent',json.dumps(before),'Original'))
+        app.update('test', status='completed', output=json.dumps({'result':json.dumps({'files':after})}))
+        status, diff = app.product_diff('test')
+        self.assertEqual(status, 200)
+        self.assertEqual({change['path']:change['kind'] for change in diff['changes']}, {'add.txt':'added','edit.py':'modified','remove.txt':'deleted'})
+        self.assertIn('-old', next(change['diff'] for change in diff['changes'] if change['path']=='edit.py'))
+        self.assertEqual(app.product_diff('unknown')[0], 404)
 
 if __name__ == '__main__':
     unittest.main()

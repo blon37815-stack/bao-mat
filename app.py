@@ -8,6 +8,8 @@ import sqlite3
 import threading
 import uuid
 import urllib.request
+import urllib.parse
+import difflib
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +38,7 @@ def connect():
     db.execute('CREATE TABLE IF NOT EXISTS project_memory (id INTEGER PRIMARY KEY CHECK(id=1), content TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_memory (task_id TEXT PRIMARY KEY, content TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_products (task_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS task_sources (task_id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, files TEXT NOT NULL, parent_prompt TEXT NOT NULL)')
     return db
 
 
@@ -80,6 +83,34 @@ def task_context(task_id):
     with connect() as db:
         row = db.execute('SELECT content FROM task_memory WHERE task_id=?', (task_id,)).fetchone()
     return row['content'] if row else ''
+
+
+def task_source(task_id):
+    with connect() as db:
+        row = db.execute('SELECT * FROM task_sources WHERE task_id=?', (task_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def product_diff(task_id):
+    source = task_source(task_id)
+    if source is None:
+        return 404, {'error':'Nhiệm vụ này không có phiên bản gốc'}
+    status, product = product_files(task_id)
+    if status != 200:
+        return status, product
+    before = {file['path']:file['content'] for file in json.loads(source['files'])}
+    after = {file['path']:file['content'] for file in product['files']}
+    changes = []
+    for path in sorted(before.keys() | after.keys()):
+        if path in before and path in after and before[path] == after[path]:
+            continue
+        kind = 'added' if path not in before else 'deleted' if path not in after else 'modified'
+        diff = '\n'.join(difflib.unified_diff(before.get(path,'').splitlines(), after.get(path,'').splitlines(),
+            fromfile='before/'+path, tofile='after/'+path, lineterm=''))
+        if not diff and kind == 'modified':
+            diff = '(Chỉ thay đổi kiểu hoặc ký tự xuống dòng.)'
+        changes.append({'path':path, 'kind':kind, 'diff':diff})
+    return 200, {'parent_id':source['parent_id'], 'changes':changes}
 
 
 def update(task_id, **fields):
@@ -131,6 +162,8 @@ class State(TypedDict, total=False):
     project_memory: str
     attempts: int
     verdict: str
+    source_files: list
+    original_request: str
 
 
 def final_answer(text):
@@ -152,6 +185,8 @@ def public_task(row):
     task = dict(row)
     task['product'] = is_product(task['id'])
     task['project_memory'] = task_context(task['id'])
+    source = task_source(task['id'])
+    task['parent_id'] = source['parent_id'] if source else None
     task['output'] = json.dumps({key: final_answer(value) for key, value in
         json.loads(task['output']).items()}, ensure_ascii=False)
     return task
@@ -215,7 +250,7 @@ def build_graph():
                           'review': 'Luồng ba bước đã chạy. Nội dung là mô phỏng, chưa chứng minh nhiệm vụ thực tế hoàn thành.'}[key]
             else:
                 from openai import OpenAI
-                context = {k: state[k] for k in ('prompt', 'project_memory', 'plan', 'result', 'review') if k in state}
+                context = {k: state[k] for k in ('prompt', 'project_memory', 'plan', 'result', 'review', 'source_files', 'original_request') if k in state}
                 role_instruction = instruction
                 if key == 'review':
                     role_instruction += ' Chỉ xuất JSON hợp lệ: {"passed":true,"issues":[]} nếu đạt; nếu chưa đạt dùng passed=false và issues là danh sách lỗi cụ thể bằng tiếng Việt. Không tuyên bố đã thực thi hay kiểm thử mã. Không có văn bản ngoài JSON.'
@@ -223,6 +258,8 @@ def build_graph():
                     role_instruction += ' Sửa kết quả trước theo các lỗi trong review, giữ đầy đủ yêu cầu ban đầu.'
                 if key == 'result' and state.get('product'):
                     role_instruction += ' Tạo bộ mã nguồn nhỏ theo yêu cầu, kèm README.md hướng dẫn chạy. Chỉ xuất JSON: {"files":[{"path":"README.md","content":"..."}]}. Tối đa 30 tệp văn bản, dùng đường dẫn tương đối với dấu /, không dùng .., không tạo .git hay .venv. Nội dung giao diện và tài liệu bằng tiếng Việt; mã dùng cú pháp đúng ngôn ngữ. Không có văn bản ngoài JSON.'
+                    if state.get('source_files'):
+                        role_instruction += ' Chỉnh sửa bộ source_files theo yêu cầu mới. Trả lại TOÀN BỘ bộ tệp, bao gồm tệp không đổi. Giữ chức năng cũ trừ khi người dùng yêu cầu thay đổi. Không trả patch hoặc phần tệp bị rút gọn.'
                 messages = [{'role':'system','content':role_instruction+' Chỉ trả lời kết quả cuối cùng bằng tiếng Việt rõ ràng, ngắn gọn. Không trình bày quá trình suy nghĩ hoặc tự đối thoại. Bạn chỉ tạo văn bản, không có công cụ thực thi.'},
                             {'role':'user','content':json.dumps(context, ensure_ascii=False)}]
                 if state['mode'] == 'ollama':
@@ -260,7 +297,11 @@ def build_graph():
 def run(task_id, prompt, mode):
     try:
         worker_update(task_id, status='running')
-        result = build_graph().invoke({'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id), 'product':is_product(task_id)})
+        state = {'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id), 'product':is_product(task_id)}
+        source = task_source(task_id)
+        if source:
+            state.update(source_files=json.loads(source['files']), original_request=source['parent_prompt'])
+        result = build_graph().invoke(state)
         if mode == 'demo':
             worker_update(task_id, status='completed', stage='Hoàn thành mô phỏng')
         elif result.get('verdict') == 'passed':
@@ -343,6 +384,8 @@ def export_task(task_id, section):
     lines = ['# Nhiệm vụ đội bot', '', task['prompt'], '',
              'Mã nhiệm vụ: ' + task['id'], 'Chế độ: ' + task['mode'],
              'Trạng thái: ' + task['status'], 'Tạo lúc (UTC): ' + task['created'], '']
+    if task['parent_id']:
+        lines += ['Phiên bản sửa từ nhiệm vụ: ' + task['parent_id'], '']
     if task['project_memory']:
         lines += ['## Bộ nhớ dự án khi giao việc', '', task['project_memory'], '']
     if task['mode'] == 'demo':
@@ -402,6 +445,32 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, {'content':get_memory()})
         if self.path == '/api/team':
             return self.respond(200, team_status())
+        if self.path.startswith('/api/tasks/') and self.path.endswith('/diff'):
+            parts = self.path.split('/')
+            if len(parts) != 5:
+                return self.respond(404, {'error':'Không tìm thấy'})
+            status, body = product_diff(parts[3])
+            return self.respond(status, body)
+        if self.path.startswith('/api/tasks/') and '/file/' in self.path:
+            parts = self.path.split('/')
+            if len(parts) != 6 or parts[4] != 'file' or not re.fullmatch(r'[0-9]{1,2}', parts[5]):
+                return self.respond(404, {'error':'Không tìm thấy tệp'})
+            status, product = product_files(parts[3])
+            if status != 200:
+                return self.respond(status, product)
+            index = int(parts[5])
+            if index >= len(product['files']):
+                return self.respond(404, {'error':'Không tìm thấy tệp'})
+            file = product['files'][index]
+            payload = file['content'].encode('utf-8')
+            name = urllib.parse.quote(file['path'].rsplit('/', 1)[-1], safe='')
+            self.send_response(200)
+            self.send_header('Content-Type','application/octet-stream')
+            self.send_header('Content-Disposition',f"attachment; filename=\"file-{index}.txt\"; filename*=UTF-8''{name}")
+            self.send_header('Content-Length',str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if self.path.startswith('/api/tasks/') and self.path.rsplit('/',1)[-1] in ('files','artifact.zip'):
             parts = self.path.split('/')
             if len(parts) != 5 or not re.fullmatch(r'[a-zA-Z0-9_-]+', parts[3]):
@@ -474,6 +543,9 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length))
             prompt, mode = data.get('prompt'), data.get('mode', 'demo')
             product = data.get('product', False)
+            parent_id = data.get('parent_id')
+            if parent_id is not None and (not isinstance(parent_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', parent_id)):
+                raise ValueError()
             if type(product) is not bool:
                 raise ValueError()
             if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000 or mode not in ('demo','ai','ollama'):
@@ -482,11 +554,28 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(400, {'error':'Nhập nhiệm vụ từ 1–4000 ký tự và chế độ hợp lệ'})
         if mode == 'ai' and not os.environ.get('OPENAI_API_KEY'):
             return self.respond(400, {'error':'Chưa cấu hình OPENAI_API_KEY trong môi trường máy chủ'})
+        source = None
+        if parent_id:
+            status, parent = product_files(parent_id)
+            if status != 200:
+                return self.respond(status, parent)
+            source = json.dumps(parent['files'], ensure_ascii=False)
+            if len(source.encode('utf-8')) > 80000:
+                return self.respond(413, {'error':'Bộ mã gốc vượt 80 KB; hãy chọn sản phẩm nhỏ hơn để sửa bằng mô hình hiện tại'})
+            with connect() as db:
+                parent_row = db.execute('SELECT prompt FROM tasks WHERE id=?', (parent_id,)).fetchone()
+            previous = task_source(parent_id)
+            original = ((previous['parent_prompt']+'\n\n') if previous else '') + parent_row['prompt']
+            if len(original) > 12000:
+                return self.respond(413, {'error':'Chuỗi yêu cầu quá dài; hãy tạo nhiệm vụ độc lập với yêu cầu được tóm tắt'})
+            product = True
         task_id = uuid.uuid4().hex
         with connect() as db:
             db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', (task_id, prompt.strip(), mode, 'queued', 'Chờ', '{}', datetime.now(timezone.utc).isoformat()))
             snapshot_memory(db, task_id)
             db.execute('INSERT INTO task_products VALUES (?,?)', (task_id, int(product)))
+            if source is not None:
+                db.execute('INSERT INTO task_sources VALUES (?,?,?,?)', (task_id, parent_id, source, original))
         enqueue_task(task_id, prompt.strip(), mode)
         self.respond(201, {'id':task_id})
 
