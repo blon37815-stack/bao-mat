@@ -4,6 +4,7 @@ import os
 import sqlite3
 import threading
 import uuid
+import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -39,6 +40,22 @@ class State(TypedDict, total=False):
     review: str
 
 
+def ollama_reply(messages):
+    """Use the local Ollama HTTP API; no API key or cloud fallback."""
+    payload = {'model': os.environ.get('OLLAMA_MODEL', 'qwen3:4b'),
+               'messages': messages, 'stream': False, 'think': False}
+    base = os.environ.get('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
+    request = urllib.request.Request(base+'/api/chat',
+        data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})
+    # Local inference may be slow on CPU. Do not send loopback through proxies.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(request, timeout=600) as response:
+        content = json.load(response)['message']['content']
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError('Empty Ollama response')
+    return content
+
+
 def build_graph():
     graph = StateGraph(State)
     for key, role, instruction in ROLES:
@@ -51,11 +68,14 @@ def build_graph():
             else:
                 from openai import OpenAI
                 context = {k: state[k] for k in ('prompt', 'plan', 'result') if k in state}
-                response = OpenAI(timeout=90, max_retries=1).chat.completions.create(
-                    model=os.environ.get('BOT_MODEL', 'gpt-4.1-mini'),
-                    messages=[{'role':'system','content':instruction+' Trả lời bằng tiếng Việt. Bạn chỉ tạo văn bản, không có công cụ thực thi.'},
-                              {'role':'user','content':json.dumps(context, ensure_ascii=False)}])
-                output = response.choices[0].message.content or ''
+                messages = [{'role':'system','content':instruction+' Trả lời bằng tiếng Việt. Bạn chỉ tạo văn bản, không có công cụ thực thi.'},
+                            {'role':'user','content':json.dumps(context, ensure_ascii=False)}]
+                if state['mode'] == 'ollama':
+                    output = ollama_reply(messages)
+                else:
+                    response = OpenAI(timeout=90, max_retries=1).chat.completions.create(
+                        model=os.environ.get('BOT_MODEL', 'gpt-4.1-mini'), messages=messages)
+                    output = response.choices[0].message.content or ''
             partial = {k: state[k] for k, _, _ in ROLES if k in state}
             partial[key] = output
             update(state['id'], output=json.dumps(partial, ensure_ascii=False))
@@ -75,7 +95,7 @@ def run(task_id, prompt, mode):
         update(task_id, status='completed', stage='Hoàn thành luồng')
     except Exception:
         # Do not persist provider errors that might contain credentials or request data.
-        update(task_id, status='failed', stage='Lỗi xử lý; kiểm tra cấu hình mô hình và kết nối')
+        update(task_id, status='failed', stage=('Không gọi được Ollama; kiểm tra ứng dụng Ollama đang chạy và đã tải mô hình' if mode == 'ollama' else 'Lỗi xử lý; kiểm tra cấu hình mô hình và kết nối'))
 
 
 def recover():
@@ -128,7 +148,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/tasks':
             with connect() as db:
                 tasks = [dict(row) for row in db.execute('SELECT * FROM tasks ORDER BY created DESC LIMIT 100')]
-            return self.respond(200, {'tasks':tasks, 'ai_available':bool(os.environ.get('OPENAI_API_KEY'))})
+            return self.respond(200, {'tasks':tasks, 'ai_available':bool(os.environ.get('OPENAI_API_KEY')), 'ollama_model':os.environ.get('OLLAMA_MODEL', 'qwen3:4b')})
         self.respond(404, {'error':'Không tìm thấy'})
 
     def do_POST(self):
@@ -144,7 +164,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError()
             data = json.loads(self.rfile.read(length))
             prompt, mode = data.get('prompt'), data.get('mode', 'demo')
-            if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000 or mode not in ('demo','ai'):
+            if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000 or mode not in ('demo','ai','ollama'):
                 raise ValueError()
         except (ValueError, TypeError, AttributeError):
             return self.respond(400, {'error':'Nhập nhiệm vụ từ 1–4000 ký tự và chế độ hợp lệ'})

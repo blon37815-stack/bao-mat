@@ -50,3 +50,36 @@ chạy lại sau lỗi hoặc khởi động lại để tránh phát sinh chi p
 API bổ sung: `GET /api/team`, `GET /api/tasks/{id}` và
 `POST /api/tasks/{id}/retry`. Chạy lại trả về 202 khi được nhận, 409 khi
 trạng thái không phù hợp, 404 khi không tìm thấy nhiệm vụ.
+
+## Chạy trên Windows với Ollama (không cần khóa API)
+
+Cài Python 3.12 từ python.org (chọn thêm Python vào PATH), Git và Ollama.
+Mở Ollama và chạy `ollama run qwen3:4b` ít nhất một lần để tải mô hình.
+Khi đã trò chuyện được, nhập `/bye` để thoát phiên trò chuyện; giữ ứng dụng
+Ollama chạy nền. Mở PowerShell mới:
+
+```powershell
+git clone --branch feat/bot-team-dashboard https://github.com/blon37815-stack/bao-mat.git
+cd bao-mat
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
+```
+
+Nếu đã clone dự án, vào đúng thư mục và chạy `git pull --ff-only` thay vì
+clone lần nữa (đảm bảo đang ở nhánh `feat/bot-team-dashboard`). Không cần
+activate môi trường ảo hay thay đổi execution policy PowerShell.
+
+Trong trình duyệt trên máy Windows, truy cập `http://127.0.0.1:8000`, chọn
+**Ollama · AI trên máy**, nhập nhiệm vụ ngắn và bấm **Giao nhiệm vụ**. Mỗi nhiệm
+vụ gọi mô hình ba lần; chạy bằng CPU có thể mất vài phút. Nếu lỗi, kiểm tra
+`ollama list` có `qwen3:4b` rồi dùng nút chạy lại.
+
+Mặc định kết nối `http://127.0.0.1:11434`, mô hình `qwen3:4b`. Có thể đổi
+`OLLAMA_MODEL` và `OLLAMA_BASE_URL` trong môi trường trước khi chạy, ví dụ
+`$env:OLLAMA_MODEL = 'qwen3:4b'`. Chỉ dùng máy chủ Ollama bạn tin cậy; nội dung
+nhiệm vụ được gửi đến máy chủ đó. Ứng dụng không tự chuyển sang OpenAI khi
+Ollama lỗi và không cần OPENAI_API_KEY ở chế độ này.
+
+Máy chủ Codex trên đám mây không kết nối được Ollama qua loopback của máy
+Windows; cả app và Ollama cần chạy trên cùng máy theo hướng dẫn trên.

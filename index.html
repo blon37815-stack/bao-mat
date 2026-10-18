@@ -7,7 +7,7 @@ const labels={queued:'Chờ',running:'Đang làm',completed:'Đã chạy xong',f
 function el(tag,text){const n=document.createElement(tag);n.textContent=text;return n}
 const opened=new Set();
 async function retry(id,button){
- if(!confirm('Chạy lại từ bước đầu? Kết quả cũ sẽ được thay thế. Chế độ AI có thể phát sinh thêm phí.'))return;
+ if(!confirm('Chạy lại từ bước đầu? Kết quả cũ sẽ được thay thế. OpenAI có thể phát sinh thêm phí; Ollama chạy trên máy.'))return;
  button.disabled=true;
  try{const response=await fetch('/api/tasks/'+id+'/retry',{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);await refresh()}
  catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}
@@ -24,7 +24,7 @@ async function refresh(){try{
  const tasks=data.tasks.filter(t=>filter==='all'||t.status===filter);
  if(!tasks.length)root.append(el('p','Không có nhiệm vụ phù hợp trong 100 nhiệm vụ gần nhất.'));
  for(const t of tasks){
-  const card=el('article','');card.append(el('h3',t.prompt),el('p',`${labels[t.status]||t.status} · ${t.stage} · ${t.mode==='demo'?'MÔ PHỎNG':'AI'} · ${new Date(t.created).toLocaleString('vi-VN')}`));
+  const card=el('article','');card.append(el('h3',t.prompt),el('p',`${labels[t.status]||t.status} · ${t.stage} · ${t.mode==='demo'?'MÔ PHỎNG':t.mode==='ollama'?'OLLAMA':'OPENAI'} · ${new Date(t.created).toLocaleString('vi-VN')}`));
   const details=el('details','');details.open=opened.has(t.id);details.append(el('summary','Chi tiết và kết quả'));
   details.addEventListener('toggle',()=>{if(details.isConnected){if(details.open)opened.add(t.id);else opened.delete(t.id)}});
   details.append(el('small','Mã nhiệm vụ: '+t.id));

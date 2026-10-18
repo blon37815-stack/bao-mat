@@ -92,5 +92,40 @@ class WorkflowTest(unittest.TestCase):
             server.server_close()
             thread.join()
 
+    def test_ollama_runs_three_stages_without_api_key(self):
+        import threading
+        requests = []
+        class OllamaStub(app.BaseHTTPRequestHandler):
+            def do_POST(self):
+                requests.append((self.path, json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
+                payload = json.dumps({'message': {'content': 'Kết quả local ' + str(len(requests))}}).encode()
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(payload)
+        server = app.ThreadingHTTPServer(('127.0.0.1', 0), OllamaStub)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            with patch.dict(app.os.environ, {'OLLAMA_BASE_URL': 'http://127.0.0.1:'+str(server.server_port)}, clear=True):
+                app.run('test', 'Lập kế hoạch', 'ollama')
+            self.assertEqual(self.row()['status'], 'completed')
+            self.assertEqual(len(requests), 3)
+            self.assertEqual(requests[0][0], '/api/chat')
+            self.assertEqual(requests[0][1]['model'], 'qwen3:4b')
+            self.assertFalse(requests[0][1]['think'])
+            self.assertFalse(requests[0][1]['stream'])
+            self.assertIn('Kết quả local 1', requests[1][1]['messages'][1]['content'])
+            self.assertIn('Kết quả local 2', requests[2][1]['messages'][1]['content'])
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
+
+    def test_ollama_failure_does_not_fall_back_to_paid_provider(self):
+        with patch.object(app, 'ollama_reply', side_effect=OSError('unreachable')):
+            app.run('test', 'Lập kế hoạch', 'ollama')
+        self.assertEqual(self.row()['status'], 'failed')
+        self.assertIn('Ollama', self.row()['stage'])
+
 if __name__ == '__main__':
     unittest.main()
