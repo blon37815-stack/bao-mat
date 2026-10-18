@@ -127,5 +127,25 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(self.row()['status'], 'failed')
         self.assertIn('Ollama', self.row()['stage'])
 
+    def test_dashboard_has_valid_provider_options(self):
+        from html.parser import HTMLParser
+        class Options(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.in_mode = False
+                self.options = []
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'select':
+                    self.in_mode = attrs.get('id') == 'mode'
+                if tag == 'option' and self.in_mode:
+                    self.options.append(attrs.get('value'))
+            def handle_endtag(self, tag):
+                if tag == 'select':
+                    self.in_mode = False
+        parser = Options()
+        parser.feed((app.ROOT/'index.html').read_text(encoding='utf-8'))
+        self.assertEqual(parser.options, ['demo', 'ollama', 'ai'])
+
 if __name__ == '__main__':
     unittest.main()
