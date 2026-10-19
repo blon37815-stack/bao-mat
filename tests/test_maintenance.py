@@ -121,3 +121,19 @@ class MaintenanceTest(unittest.TestCase):
             self.assertEqual(error.exception.code, 403)
         finally:
             server.shutdown(); server.server_close(); worker.join()
+
+    def test_list_uses_one_connection_and_keeps_joined_metadata(self):
+        with app.connect() as db:
+            db.executemany('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)',[(str(index),'Job','demo','completed','','{}','now') for index in range(50)])
+            db.execute('INSERT INTO task_memory VALUES (?,?)',('0','Memory snapshot'))
+            db.execute('INSERT INTO task_products VALUES (?,?)',('0',1))
+            db.execute('INSERT INTO task_sources VALUES (?,?,?,?)',('0','parent','[]','request'))
+            db.execute('INSERT INTO task_retries VALUES (?,?)',('0','1'))
+        with patch.object(app,'connect',wraps=app.connect) as connections:
+            page=app.list_tasks()
+        self.assertEqual(connections.call_count,1)
+        task=next(row for row in page['tasks'] if row['id']=='0')
+        self.assertTrue(task['product'])
+        self.assertEqual(task['project_memory'],'Memory snapshot')
+        self.assertEqual(task['parent_id'],'parent')
+        self.assertEqual(task['retry_id'],'1')

@@ -19,7 +19,23 @@ from maintenance import ollama_health, backup_database
 from ollama_transport import request_completion, InferenceCancelled as TaskCancelled
 from langgraph.graph import StateGraph, START, END
 
-TASK_QUEUE = queue.Queue()
+class TaskQueue(queue.Queue):
+    def discard(self, task_id):
+        """Remove only waiting entries, without touching an active worker."""
+        with self.mutex:
+            remaining = [item for item in self.queue if item[0] != task_id]
+            removed = len(self.queue)-len(remaining)
+            self.queue.clear()
+            self.queue.extend(remaining)
+            self.unfinished_tasks -= removed
+            if not self.unfinished_tasks:
+                self.all_tasks_done.notify_all()
+            if removed:
+                self.not_full.notify_all()
+
+
+TASK_QUEUE = TaskQueue(maxsize=10)
+ADMISSION_LOCK = threading.RLock()
 WORKER_LOCK = threading.Lock()
 WORKER = None
 ACTIVE_LOCK = threading.Lock()
@@ -44,6 +60,7 @@ def connect():
     db.execute('CREATE TABLE IF NOT EXISTS task_memory (task_id TEXT PRIMARY KEY, content TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_products (task_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_sources (task_id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, files TEXT NOT NULL, parent_prompt TEXT NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS task_retries (parent_id TEXT PRIMARY KEY, child_id TEXT NOT NULL UNIQUE)')
     return db
 
 
@@ -119,6 +136,15 @@ def product_diff(task_id):
 
 
 TASK_STATUSES = ('queued','running','completed','needs_review','failed','interrupted','approved','cancelled')
+TASK_SELECT = '''SELECT t.*, COALESCE(p.enabled,0) AS product,
+    COALESCE(m.content,'') AS project_memory, s.parent_id,
+    next.child_id AS retry_id, prev.parent_id AS retry_of
+    FROM tasks t
+    LEFT JOIN task_products p ON p.task_id=t.id
+    LEFT JOIN task_memory m ON m.task_id=t.id
+    LEFT JOIN task_sources s ON s.task_id=t.id
+    LEFT JOIN task_retries next ON next.parent_id=t.id
+    LEFT JOIN task_retries prev ON prev.child_id=t.id'''
 
 
 def list_tasks(query='', status='all', offset=0):
@@ -126,16 +152,16 @@ def list_tasks(query='', status='all', offset=0):
         raise ValueError('Bộ lọc không hợp lệ')
     clauses, params = [], []
     if query.strip():
-        clauses.append('(instr(casefold(prompt), ?) > 0 OR instr(casefold(id), ?) > 0)')
+        clauses.append('(instr(casefold(t.prompt), ?) > 0 OR instr(casefold(t.id), ?) > 0)')
         params += [query.strip().casefold(), query.strip().casefold()]
     if status != 'all':
-        clauses.append('status=?')
+        clauses.append('t.status=?')
         params.append(status)
     where = ' WHERE ' + ' AND '.join(clauses) if clauses else ''
     with connect() as db:
         db.create_function('casefold', 1, lambda text: (text or '').casefold())
-        total = db.execute('SELECT COUNT(*) FROM tasks'+where, params).fetchone()[0]
-        rows = db.execute('SELECT * FROM tasks'+where+' ORDER BY created DESC, id DESC LIMIT 50 OFFSET ?', [*params, offset]).fetchall()
+        total = db.execute('SELECT COUNT(*) FROM tasks t'+where, params).fetchone()[0]
+        rows = db.execute(TASK_SELECT+where+' ORDER BY t.created DESC, t.id DESC LIMIT 50 OFFSET ?', [*params, offset]).fetchall()
     return {'tasks':[public_task(row) for row in rows], 'total':total, 'offset':offset, 'limit':50,
             'ai_available':bool(os.environ.get('OPENAI_API_KEY')), 'ollama_model':os.environ.get('OLLAMA_MODEL','qwen3:4b')}
 
@@ -173,6 +199,8 @@ def task_action(task_id, action):
         else:
             return 404, {'error':'Không tìm thấy thao tác'}
     if action == 'cancel' and changed:
+        with ADMISSION_LOCK:
+            TASK_QUEUE.discard(task_id)
         with ACTIVE_LOCK:
             event = ACTIVE_CANCEL.get(task_id)
             if event:
@@ -215,10 +243,12 @@ def final_answer(text):
 
 def public_task(row):
     task = dict(row)
-    task['product'] = is_product(task['id'])
-    task['project_memory'] = task_context(task['id'])
-    source = task_source(task['id'])
-    task['parent_id'] = source['parent_id'] if source else None
+    if 'product' not in task:
+        with connect() as db:
+            enriched = db.execute(TASK_SELECT+' WHERE t.id=?', (task['id'],)).fetchone()
+        if enriched is not None:
+            task = dict(enriched)
+    task['product'] = bool(task['product'])
     task['output'] = json.dumps({key: final_answer(value) for key, value in
         json.loads(task['output']).items()}, ensure_ascii=False)
     return task
@@ -383,11 +413,12 @@ def work_loop():
 
 def enqueue_task(task_id, prompt, mode):
     global WORKER
-    with WORKER_LOCK:
-        if WORKER is None or not WORKER.is_alive():
-            WORKER = threading.Thread(target=work_loop, daemon=True, name='bot-worker')
-            WORKER.start()
-        TASK_QUEUE.put((task_id, prompt, mode))
+    with ADMISSION_LOCK:
+        TASK_QUEUE.put_nowait((task_id, prompt, mode))
+        with WORKER_LOCK:
+            if WORKER is None or not WORKER.is_alive():
+                WORKER = threading.Thread(target=work_loop, daemon=True, name='bot-worker')
+                WORKER.start()
 
 
 def recover():
@@ -396,18 +427,30 @@ def recover():
 
 
 def retry_task(task_id):
-    """Atomically claim failed work so double clicks cannot start two runs."""
-    with connect() as db:
-        task = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
-        if task is None:
-            return 404, {'error': 'Không tìm thấy nhiệm vụ'}
-        if task['mode'] == 'ai' and not os.environ.get('OPENAI_API_KEY'):
-            return 400, {'error': 'Chưa cấu hình OPENAI_API_KEY'}
-        changed = db.execute("UPDATE tasks SET status='queued', stage='Chờ chạy lại', output='{}' WHERE id=? AND status IN ('failed','interrupted')", (task_id,)).rowcount
-        if not changed:
-            return 409, {'error': 'Chỉ chạy lại nhiệm vụ thất bại hoặc bị gián đoạn'}
-    enqueue_task(task_id, task['prompt'], task['mode'])
-    return 202, {'id': task_id}
+    """Create one linked retry, preserving the original and its active cancel flag."""
+    with ADMISSION_LOCK:
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            task = db.execute('SELECT * FROM tasks WHERE id=?', (task_id,)).fetchone()
+            if task is None:
+                return 404, {'error':'Không tìm thấy nhiệm vụ'}
+            if task['status'] not in ('failed','interrupted','cancelled','needs_review'):
+                return 409, {'error':'Nhiệm vụ chưa ở trạng thái cho phép chạy lại'}
+            previous = db.execute('SELECT child_id FROM task_retries WHERE parent_id=?', (task_id,)).fetchone()
+            if previous:
+                return 409, {'error':'Đã tạo lượt chạy lại cho nhiệm vụ này', 'id':previous['child_id']}
+            if task['mode']=='ai' and not os.environ.get('OPENAI_API_KEY'):
+                return 400, {'error':'Chưa cấu hình OPENAI_API_KEY'}
+            if TASK_QUEUE.full():
+                return 429, {'error':'Hàng đợi đầy; hãy đợi hoặc hủy một việc đang chờ'}
+            retry_id = uuid.uuid4().hex
+            db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', (retry_id,task['prompt'],task['mode'],'queued','Chờ chạy lại','{}',datetime.now(timezone.utc).isoformat()))
+            db.execute('INSERT INTO task_retries VALUES (?,?)', (task_id,retry_id))
+            db.execute("INSERT INTO task_memory SELECT ?, COALESCE((SELECT content FROM task_memory WHERE task_id=?),'')", (retry_id,task_id))
+            db.execute('INSERT INTO task_products SELECT ?,enabled FROM task_products WHERE task_id=?', (retry_id,task_id))
+            db.execute('INSERT INTO task_sources SELECT ?,parent_id,files,parent_prompt FROM task_sources WHERE task_id=?', (retry_id,task_id))
+        enqueue_task(retry_id,task['prompt'],task['mode'])
+    return 202, {'id':retry_id, 'retry_of':task_id}
 
 
 def team_status():
@@ -418,7 +461,8 @@ def team_status():
             role = row['stage'].split(' · ')[0]
             counts[role] = counts.get(role, 0) + row['count']
         totals = dict(db.execute('SELECT status, COUNT(*) FROM tasks GROUP BY status').fetchall())
-    return {'bots': [{'name': role, 'active': counts.get(role, 0)} for _, role, _ in ROLES], 'totals': totals}
+    return {'bots': [{'name': role, 'active': counts.get(role, 0)} for _, role, _ in ROLES], 'totals': totals,
+            'queue':{'waiting':TASK_QUEUE.qsize(),'capacity':TASK_QUEUE.maxsize}}
 
 
 def export_task(task_id, section):
@@ -439,6 +483,10 @@ def export_task(task_id, section):
              'Trạng thái: ' + task['status'], 'Tạo lúc (UTC): ' + task['created'], '']
     if task['parent_id']:
         lines += ['Phiên bản sửa từ nhiệm vụ: ' + task['parent_id'], '']
+    if task['retry_of']:
+        lines += ['Lượt chạy lại từ nhiệm vụ: ' + task['retry_of'], '']
+    if task['retry_id']:
+        lines += ['Đã tạo lượt chạy lại: ' + task['retry_id'], '']
     if task['project_memory']:
         lines += ['## Bộ nhớ dự án khi giao việc', '', task['project_memory'], '']
     if task['mode'] == 'demo':
@@ -652,14 +700,17 @@ class Handler(BaseHTTPRequestHandler):
             if len(original) > 12000:
                 return self.respond(413, {'error':'Chuỗi yêu cầu quá dài; hãy tạo nhiệm vụ độc lập với yêu cầu được tóm tắt'})
             product = True
-        task_id = uuid.uuid4().hex
-        with connect() as db:
-            db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', (task_id, prompt.strip(), mode, 'queued', 'Chờ', '{}', datetime.now(timezone.utc).isoformat()))
-            snapshot_memory(db, task_id)
-            db.execute('INSERT INTO task_products VALUES (?,?)', (task_id, int(product)))
-            if source is not None:
-                db.execute('INSERT INTO task_sources VALUES (?,?,?,?)', (task_id, parent_id, source, original))
-        enqueue_task(task_id, prompt.strip(), mode)
+        with ADMISSION_LOCK:
+            if TASK_QUEUE.full():
+                return self.respond(429, {'error':'Hàng đợi đầy; hãy đợi hoặc hủy một việc đang chờ'})
+            task_id = uuid.uuid4().hex
+            with connect() as db:
+                db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', (task_id, prompt.strip(), mode, 'queued', 'Chờ', '{}', datetime.now(timezone.utc).isoformat()))
+                snapshot_memory(db, task_id)
+                db.execute('INSERT INTO task_products VALUES (?,?)', (task_id, int(product)))
+                if source is not None:
+                    db.execute('INSERT INTO task_sources VALUES (?,?,?,?)', (task_id, parent_id, source, original))
+            enqueue_task(task_id, prompt.strip(), mode)
         self.respond(201, {'id':task_id})
 
 

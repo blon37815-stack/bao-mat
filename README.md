@@ -17,7 +17,7 @@ python -m venv .venv
 
 Máy chủ chỉ lắng nghe trên loopback, cổng 8000. Dùng trình duyệt trên máy
 chạy ứng dụng hoặc đường hầm được quản lý để truy cập. Không đưa máy chủ này
-trực tiếp lên Internet: bản đầu chưa có đăng nhập hay giới hạn số nhiệm vụ.
+trực tiếp lên Internet: bản đầu chưa có đăng nhập hoặc giới hạn tần suất truy cập.
 
 Chế độ **Mô phỏng** không gọi AI, chỉ xác minh luồng và lưu dữ liệu.
 Để dùng **AI thật**, cấp `OPENAI_API_KEY` qua biến môi trường an toàn trước
@@ -28,7 +28,7 @@ Không nhập dữ liệu nhạy cảm nếu chưa chấp nhận gửi tới nh�
 
 `PORT` đổi cổng, `BOT_DB` đổi đường dẫn SQLite (mặc định `data/tasks.sqlite3`).
 Lịch sử giữ lại qua lần khởi động; nhiệm vụ đang chạy bị đánh dấu gián đoạn
-và không tự chạy lại. Giao diện hiển thị 100 nhiệm vụ gần nhất.
+và không tự chạy lại. Giao diện tìm kiếm toàn bộ lịch sử, phân trang 50 nhiệm vụ.
 
 ## Kiến trúc dự kiến
 
@@ -43,8 +43,8 @@ và không tự chạy lại. Giao diện hiển thị 100 nhiệm vụ gần nh
 
 Bảng điều hành hiển thị số nhiệm vụ đang xử lý ở từng vai trò và tổng số
 nhiệm vụ theo trạng thái. Có bộ lọc và mục chi tiết cho từng nhiệm vụ.
-Với nhiệm vụ thất bại hoặc bị gián đoạn, nút **Chạy lại từ đầu** xóa kết quả
-cũ và chạy lại cả ba bước; chế độ AI có thể tính phí lần nữa. Không tự động
+Với nhiệm vụ thất bại, bị gián đoạn, đã hủy hoặc cần người xem, nút **Chạy
+lại từ đầu** tạo lượt mới và giữ kết quả cũ; chế độ AI có thể tính phí lần nữa. Không tự động
 chạy lại sau lỗi hoặc khởi động lại để tránh phát sinh chi phí ngoài ý muốn.
 
 API bổ sung: `GET /api/team`, `GET /api/tasks/{id}` và
@@ -128,7 +128,7 @@ web chéo nguồn, không thay thế đăng nhập hoặc ngăn phần mềm đ�
 Trong một tiến trình app, nhiệm vụ mới và nhiệm vụ chạy lại dùng chung hàng
 đợi FIFO và một worker. Chỉ một nhiệm vụ được xử lý tại một thời điểm (cả ba
 bước); các nhiệm vụ khác giữ trạng thái Chờ. Không mở nhiều tiến trình app
-cùng dùng một cơ sở dữ liệu. Hàng đợi chưa giới hạn số việc chờ; khi đóng
+cùng dùng một cơ sở dữ liệu. Hàng đợi giới hạn 10 việc chờ; khi đóng
 app, việc chờ/đang chạy được đánh dấu gián đoạn ở lần khởi động tiếp theo,
 không tự chạy lại. SQLite bật WAL và busy_timeout 30 giây để giảm tranh chấp
 đọc/ghi; vẫn cần sao lưu đúng cả dữ liệu WAL khi app đang mở.
@@ -206,8 +206,7 @@ Khi nhiệm vụ kết thúc, bấm **Xem bộ tệp** để chọn và đọc n
 **Tải mã nguồn ZIP**. ZIP được tạo trong bộ nhớ từ dữ liệu đã kiểm tra. Chưa
 có tự chạy, cài phụ thuộc hoặc xác minh sản phẩm hoạt động; AI đánh giá đạt
 không bảo đảm mã an toàn hay chạy đúng. Đọc mã trước khi dùng và chạy mã chưa
-tin cậy trong môi trường cô lập. Giữ bản ZIP nếu cần lịch sử, vì chạy lại
-nhiệm vụ sẽ thay thế kết quả cũ.
+tin cậy trong môi trường cô lập. Chạy lại nhiệm vụ tạo lượt mới và giữ kết quả cũ; nên tải ZIP nếu cần bản sao riêng.
 
 Giới hạn: 30 tệp văn bản, 100 KB mỗi tệp, tổng 1 MB nội dung UTF-8; không có
 tệp nhị phân. Từ chối đường dẫn tuyệt đối, `..`, dấu gạch chéo ngược, ký tự
@@ -233,8 +232,7 @@ trước đó, đồng thời dùng bộ nhớ dự án hiện tại lúc giao v
 lại toàn bộ bộ tệp, bao gồm tệp không đổi. Xem **So sánh với bản gốc** để biết
 tệp thêm/sửa/xóa, đọc diff và kiểm tra mô hình có vô tình bỏ tệp hay không.
 Việc duyệt vẫn do bạn thực hiện; so sánh không xác minh chức năng chạy đúng.
-Mỗi nhiệm vụ ghi mã bản gốc trong chi tiết và báo cáo Markdown. Các bản có
-thể nằm ngoài 100 nhiệm vụ mới nhất nhưng vẫn được lưu trong SQLite.
+Mỗi nhiệm vụ ghi mã bản gốc trong chi tiết và báo cáo Markdown. Các bản vẫn được lưu trong SQLite và có thể tìm theo mã nhiệm vụ.
 
 Trong **Xem bộ tệp**, chọn một tệp và bấm **Tải [tên tệp]** để tải riêng; mã
 được tải như tệp đính kèm, không được thực thi hoặc hiển thị như trang HTML
@@ -343,3 +341,25 @@ Nếu sản phẩm không có tệp nào được kiểm tra cú pháp độc l�
 vẫn dừng ở Cần bạn xem. Nếu có kiểm tra, trạng thái ghi số tệp đã kiểm tra
 và bỏ qua, cùng giới hạn chưa kiểm thử chức năng. Người dùng có thể xem và
 chủ động duyệt; chưa có tự chạy test của sản phẩm trong sandbox.
+
+
+## Giới hạn hàng đợi và lịch sử chạy lại
+
+Tối đa 10 việc đang chờ ngoài một việc đang xử lý. Việc mới và chạy lại dùng
+chung giới hạn; API trả 429 khi đầy, không tạo bản ghi nhiệm vụ thừa. Trên
+bảng điều hành hiển thị số việc chờ/giới hạn và tạm khóa nút giao việc khi
+đầy. Hủy việc chờ xóa ngay mục tương ứng khỏi hàng đợi để nhận việc khác.
+Giới hạn áp dụng trong một tiến trình; không chạy nhiều app cùng dùng SQLite.
+
+Chạy lại hỗ trợ failed/interrupted/cancelled/needs_review. Mỗi lần tạo mã
+nhiệm vụ mới, sao chép yêu cầu, chế độ, bộ nhớ ban đầu và bản sao mã nguồn
+nếu có; không xóa kết quả cũ. Một nguồn chỉ tạo một lượt chạy lại trực tiếp,
+tránh bấm trùng; nếu lượt mới lại lỗi thì chạy tiếp từ lượt mới đó. Giao diện
+có liên kết **Xem lượt trước** và **Xem lượt chạy lại**. Việc đã duyệt hoặc
+hoàn thành không được chạy lại bằng nút này; dùng yêu cầu chỉnh sửa sản phẩm.
+
+`POST /api/tasks/{id}/retry` trả 202 với id mới và retry_of; 409 nếu không
+được phép hoặc đã tạo lượt, 429 khi đầy. Lượt cũ giữ trạng thái và dữ liệu
+nguyên vẹn. Quan hệ lượt chạy được sao lưu trong SQLite. Danh sách nhiệm vụ
+lấy bộ nhớ, sản phẩm và quan hệ phiên bản bằng JOIN trong một kết nối, không
+mở thêm kết nối theo từng nhiệm vụ trên trang.

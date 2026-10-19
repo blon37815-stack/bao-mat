@@ -77,11 +77,13 @@ async function taskAction(id,action,button){
  try{const response=await apiFetch('/api/tasks/'+id+'/'+action,{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);await refresh()}catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}
 }
 async function retry(id,button){
- if(!confirm('Chạy lại từ bước đầu? Kết quả cũ sẽ được thay thế. OpenAI có thể phát sinh thêm phí; Ollama chạy trên máy.'))return;
+ if(!confirm('Tạo một lượt chạy mới từ bước đầu và giữ nguyên kết quả cũ? OpenAI có thể phát sinh thêm phí; Ollama chạy trên máy.'))return;
  button.disabled=true;
- try{const response=await apiFetch('/api/tasks/'+id+'/retry',{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);await refresh()}
+ try{const response=await apiFetch('/api/tasks/'+id+'/retry',{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);await jumpTask(data.id)}
  catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}
 }
+async function jumpTask(id){pageOffset=0;document.querySelector('#search').value=id;document.querySelector('#filter').value='all';await refresh()}
+let submitting=false,queueFull=false;
 async function refresh(){const version=++refreshVersion;try{
  const params=new URLSearchParams({q:document.querySelector('#search').value,status:document.querySelector('#filter').value,offset:String(pageOffset)});
  const [response,teamResponse]=await Promise.all([apiFetch('/api/tasks?'+params),apiFetch('/api/team')]);
@@ -94,7 +96,8 @@ async function refresh(){const version=++refreshVersion;try{
  document.querySelector('option[value="ai"]').disabled=!data.ai_available;
  const roles=document.querySelector('.roles');roles.replaceChildren();
  for(const bot of team.bots)roles.append(el('span',bot.name+' · '+(bot.active?bot.active+' nhiệm vụ đang làm':'Rảnh')));
- document.querySelector('#summary').textContent=Object.entries(team.totals).map(([k,v])=>(labels[k]||k)+': '+v).join(' · ')||'Chưa có nhiệm vụ';
+ document.querySelector('#summary').textContent=(Object.entries(team.totals).map(([k,v])=>(labels[k]||k)+': '+v).join(' · ')||'Chưa có nhiệm vụ')+' · Hàng đợi: '+team.queue.waiting+'/'+team.queue.capacity;
+ queueFull=team.queue.waiting>=team.queue.capacity;document.querySelector('#submit').disabled=submitting||queueFull;
  const root=document.querySelector('#tasks');root.replaceChildren();
  const tasks=data.tasks;
  if(!tasks.length)root.append(el('p','Không có nhiệm vụ phù hợp. Thử đổi từ khóa hoặc bộ lọc.'));
@@ -103,6 +106,8 @@ async function refresh(){const version=++refreshVersion;try{
   const details=el('details','');details.open=opened.has(t.id);details.append(el('summary','Chi tiết và kết quả'));
   details.addEventListener('toggle',()=>{if(details.isConnected){if(details.open)opened.add(t.id);else opened.delete(t.id)}});
   details.append(el('small','Mã nhiệm vụ: '+t.id));
+  if(t.retry_of){const previous=el('button','Xem lượt trước');previous.onclick=()=>jumpTask(t.retry_of);details.append(el('p','Chạy lại từ: '+t.retry_of),previous)}
+  if(t.retry_id){const next=el('button','Xem lượt chạy lại');next.onclick=()=>jumpTask(t.retry_id);details.append(next)}
   if(t.parent_id)details.append(el('p','Phiên bản sửa từ nhiệm vụ: '+t.parent_id));
   if(t.project_memory)details.append(el('h4','Bộ nhớ lúc giao việc'),el('pre',t.project_memory));
   const outputs=Object.entries(JSON.parse(t.output));
@@ -113,7 +118,7 @@ async function refresh(){const version=++refreshVersion;try{
   if(t.product&&['completed','needs_review','approved'].includes(t.status)){const button=el('button','Xem bộ tệp');button.onclick=()=>viewFiles(t.id);const link=el('a','Tải mã nguồn ZIP');link.href='/api/tasks/'+t.id+'/artifact.zip';const checks=el('button','Kiểm tra cú pháp');checks.onclick=()=>viewChecks(t.id);card.append(checks);const revise=el('button','Yêu cầu chỉnh sửa');revise.onclick=()=>beginRevision(t);card.append(button,link,revise);if(t.parent_id){const compare=el('button','So sánh với bản gốc');compare.onclick=()=>viewDiff(t.id);card.append(compare)}}
   if(['queued','running'].includes(t.status)){const button=el('button','Hủy nhiệm vụ');button.onclick=()=>taskAction(t.id,'cancel',button);card.append(button)}
   if(t.mode!=='demo'&&['completed','needs_review'].includes(t.status)&&JSON.parse(t.output).result){const button=el('button','Duyệt kết quả');button.onclick=()=>taskAction(t.id,'approve',button);card.append(button)}
-  if(['failed','interrupted'].includes(t.status)){const button=el('button','Chạy lại từ đầu');button.onclick=()=>retry(t.id,button);card.append(button)}
+  if(!t.retry_id&&['failed','interrupted','cancelled','needs_review'].includes(t.status)){const button=el('button','Chạy lại từ đầu');button.onclick=()=>retry(t.id,button);card.append(button)}
   root.append(card);
  }
  }catch(e){if(version===refreshVersion)document.querySelector('#error').textContent=e.message}}
@@ -122,5 +127,5 @@ document.querySelector('#search').oninput=()=>{clearTimeout(searchTimer);pageOff
 document.querySelector('#filter').onchange=()=>{pageOffset=0;refresh()};
 document.querySelector('#previous-page').onclick=()=>{pageOffset=Math.max(0,pageOffset-50);refresh()};
 document.querySelector('#next-page').onclick=()=>{pageOffset+=50;refresh()};
-document.querySelector('#form').onsubmit=async e=>{e.preventDefault();const button=document.querySelector('#submit');button.disabled=true;try{const r=await apiFetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:document.querySelector('#prompt').value,mode:document.querySelector('#mode').value,product:document.querySelector('#product').checked,parent_id:parentTask})});const data=await r.json();if(!r.ok)throw Error(data.error);document.querySelector('#error').textContent='';document.querySelector('#prompt').value='';clearRevision();pageOffset=0;document.querySelector('#search').value='';document.querySelector('#filter').value='all';await refresh()}catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}};refresh();setInterval(refresh,2000);
+document.querySelector('#form').onsubmit=async e=>{e.preventDefault();const button=document.querySelector('#submit');submitting=true;button.disabled=true;try{const r=await apiFetch('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:document.querySelector('#prompt').value,mode:document.querySelector('#mode').value,product:document.querySelector('#product').checked,parent_id:parentTask})});const data=await r.json();if(!r.ok)throw Error(data.error);document.querySelector('#error').textContent='';document.querySelector('#prompt').value='';clearRevision();pageOffset=0;document.querySelector('#search').value='';document.querySelector('#filter').value='all';await refresh()}catch(e){document.querySelector('#error').textContent=e.message}finally{submitting=false;button.disabled=queueFull}};refresh();setInterval(refresh,2000);
 </script></html>

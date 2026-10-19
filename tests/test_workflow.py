@@ -33,14 +33,20 @@ class WorkflowTest(unittest.TestCase):
         app.recover()
         self.assertEqual(self.row()['status'],'interrupted')
 
-    def test_retry_claims_once_and_clears_partial_output(self):
+    def test_retry_claims_once_and_preserves_original_output(self):
         app.update('test', status='failed', output='{"plan":"old"}')
         with patch.object(app, 'enqueue_task') as worker:
-            self.assertEqual(app.retry_task('test')[0], 202)
+            status, result = app.retry_task('test')
+            self.assertEqual(status, 202)
+            self.assertNotEqual(result['id'], 'test')
             self.assertEqual(app.retry_task('test')[0], 409)
             worker.assert_called_once()
-        self.assertEqual(self.row()['output'], '{}')
-        self.assertEqual(self.row()['status'], 'queued')
+        self.assertEqual(self.row()['output'], '{"plan":"old"}')
+        self.assertEqual(self.row()['status'], 'failed')
+        with app.connect() as db:
+            clone = db.execute('SELECT * FROM tasks WHERE id=?',(result['id'],)).fetchone()
+        self.assertEqual(clone['output'],'{}')
+        self.assertEqual(clone['status'],'queued')
 
     def test_retry_preserves_work_when_ai_key_is_missing(self):
         app.update('test', mode='ai', status='failed', output='{"plan":"saved"}')
@@ -124,15 +130,16 @@ class WorkflowTest(unittest.TestCase):
             request = urllib.request.Request(base+'/api/tasks/test/retry', method='POST', headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
             with urllib.request.urlopen(request) as response:
                 self.assertEqual(response.status, 202)
+                retry_id = json.load(response)['id']
             for _ in range(100):
-                task = get('/api/tasks/test')
+                task = get('/api/tasks/'+retry_id)
                 if task['status'] == 'completed':
                     break
                 time.sleep(.02)
             self.assertEqual(task['status'], 'completed')
             self.assertEqual(len(json.loads(task['output'])), 3)
             self.assertEqual(get('/api/team')['totals']['completed'], 3)
-            with urllib.request.urlopen(base+'/api/tasks/test/export/all') as response:
+            with urllib.request.urlopen(base+'/api/tasks/'+retry_id+'/export/all') as response:
                 self.assertIn('attachment', response.headers['Content-Disposition'])
                 self.assertIn('text/markdown', response.headers['Content-Type'])
                 self.assertIn('Kiểm tra', response.read().decode('utf-8'))
