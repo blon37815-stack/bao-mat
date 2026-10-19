@@ -61,6 +61,12 @@ small,
   gap: 12px;
   margin-bottom: 20px;
 }
+.resource-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
 .roles span {
   padding: 18px;
   background: #203146;

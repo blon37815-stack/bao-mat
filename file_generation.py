@@ -60,7 +60,7 @@ def generate_files(state, reply, progress):
     for index,path in enumerate(targets,1):
         current = [{'path':name,'content':contents[name]} for name in manifest if name in contents]
         progress(path,index,len(targets),current)
-        context = {key:state[key] for key in ('prompt','project_memory','plan','requirements','original_request') if key in state}
+        context = {key:state[key] for key in ('prompt','project_memory','supervise','plan','requirements','original_request') if key in state}
         context.update(target_path=path,manifest=manifest,existing_files=current)
         if state.get('review'):
             context['review'] = state['review']

@@ -13,6 +13,7 @@ import uuid
 import app
 from artifacts import parse_files, check_files
 from evaluation_cases import CASES
+from expert_team import ECC_COMMIT, EXPERTS, resolve_expert
 from maintenance import ollama_health
 from runtime_version import RUNTIME_INFO
 from task_requirements import template_requirements, check_requirements
@@ -67,11 +68,13 @@ def checkpoint(path, report):
         temporary.unlink(missing_ok=True)
 
 
-def run_evaluation(cases, repeat, output):
+def run_evaluation(cases, repeat, output, expert='none', call_limit=20):
+    app.valid_call_limit(call_limit)
+    resolve_expert(expert)
     output = Path(output)
     output.parent.mkdir(parents=True,exist_ok=True)
     report = {'provider':'ollama','model':os.environ.get('OLLAMA_MODEL','qwen3:4b'),
-              'app':RUNTIME_INFO,'started_at':app.utc_now(),'status':'running','functional_tests':False,
+              'app':RUNTIME_INFO,'expert':expert,'call_limit':call_limit,'started_at':app.utc_now(),'status':'running','functional_tests':False,
               'acceptance':'Final artifact static checks AND completed workflow; target >=8/10 for each JSON case.',
               'trials':[],'summary':{}}
     # Reserve a new report; never overwrite results from an earlier evaluation.
@@ -88,6 +91,8 @@ def run_evaluation(cases, repeat, output):
                         db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)',(task_id,case['prompt'],'ollama','queued','','{}',app.utc_now()))
                         db.execute('INSERT INTO task_products VALUES (?,1)',(task_id,))
                         db.execute('INSERT INTO task_requirements VALUES (?,?)',(task_id,json.dumps(template_requirements(case['template']),ensure_ascii=False)))
+                        selected=resolve_expert(expert,case['template'])
+                        db.execute('INSERT INTO task_assignment VALUES (?,?,?,?)',(task_id,selected,call_limit,ECC_COMMIT if selected!='none' else ''))
                     print(f"{case['id']} {number}/{repeat}",flush=True)
                     started = time.monotonic()
                     trial = {'case_id':case['id'],'template':case['template'],'repeat':number,'task_id':task_id}
@@ -128,11 +133,15 @@ def main(argv=None):
     parser.add_argument('--suite',choices=['all','data','python','web'],default='all')
     parser.add_argument('--case',choices=[case['id'] for case in CASES])
     parser.add_argument('--repeat',type=int,default=1)
+    parser.add_argument('--expert',choices=['auto','none',*EXPERTS],default='auto')
+    parser.add_argument('--call-limit',type=int,default=20)
     parser.add_argument('--run',action='store_true',help='Actually call local Ollama; without this flag only list cases.')
     parser.add_argument('--output',type=Path)
     args = parser.parse_args(argv)
     if not 1<=args.repeat<=100:
         parser.error('--repeat must be 1..100')
+    if not 1<=args.call_limit<=100:
+        parser.error('--call-limit must be 1..100')
     cases = [case for case in CASES if (not args.case or case['id']==args.case) and (args.suite=='all' or case['template']==args.suite)]
     if not cases:
         parser.error('Case and suite do not match')
@@ -146,7 +155,7 @@ def main(argv=None):
     if health['status']!='ready':
         parser.error('Ollama/model not ready; no inference was started')
     output = args.output or Path('data/evaluations')/('evaluation-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:8]+'.json')
-    report = run_evaluation(cases,args.repeat,output)
+    report = run_evaluation(cases,args.repeat,output,args.expert,args.call_limit)
     print('Báo cáo: '+str(output.resolve()))
     print(json.dumps(report['summary'],ensure_ascii=False,indent=2))
     return 130 if report['status']=='interrupted' else 0 if all(trial['passed'] for trial in report['trials']) else 1

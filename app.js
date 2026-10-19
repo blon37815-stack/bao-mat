@@ -29,6 +29,15 @@ function el(tag, text) {
   return n;
 }
 let sessionToken;
+let budgetTouched = false;
+const expertNames = {
+  planner: "ECC · Lập kế hoạch",
+  architect: "ECC · Kiến trúc",
+  python: "ECC · Python",
+  web: "ECC · Web",
+  data: "ECC · Dữ liệu JSON",
+  none: "Đội cơ bản",
+};
 async function loadVersion() {
   const label = document.querySelector("#app-version");
   try {
@@ -163,11 +172,13 @@ async function viewHistory(id) {
         ? duration(history.timing.started_at, history.timing.finished_at)
         : "Chưa có dữ liệu");
     const names = {
+        supervise: "Chuyên gia ECC",
         plan: "Điều phối",
         result: "Thực hiện",
         review: "Kiểm tra",
       },
       states = {
+        limited: "Hết lượt gọi",
         completed: "Xong",
         running: "Đang chạy",
         cancelled: "Đã hủy",
@@ -489,6 +500,8 @@ function currentDraft() {
     product: document.querySelector("#product").checked,
     parent_id: parentTask,
     template: document.querySelector("#task-template").value,
+    expert: document.querySelector("#expert").value,
+    call_limit: Number(document.querySelector("#call-limit").value),
   };
 }
 function persistDraft() {
@@ -518,6 +531,16 @@ function restoreDraft() {
     document.querySelector("#prompt").value = saved.prompt;
     document.querySelector("#mode").value = saved.mode;
     document.querySelector("#product").checked = saved.product === true;
+    if (saved.expert === "auto" || Object.hasOwn(expertNames, saved.expert))
+      document.querySelector("#expert").value = saved.expert;
+    if (
+      Number.isInteger(saved.call_limit) &&
+      saved.call_limit >= 1 &&
+      saved.call_limit <= 100
+    ) {
+      document.querySelector("#call-limit").value = saved.call_limit;
+      budgetTouched = true;
+    }
     document.querySelector("#task-template").value = Object.hasOwn(
       templates,
       saved.template,
@@ -541,10 +564,14 @@ function restoreDraft() {
       "Chưa đọc được bản nháp trên trình duyệt.";
   }
 }
-for (const id of ["prompt", "mode", "product"])
+for (const id of ["prompt", "mode", "product", "expert", "call-limit"])
   document
     .querySelector("#" + id)
     .addEventListener(id === "prompt" ? "input" : "change", persistDraft);
+document.querySelector("#call-limit").addEventListener("input", () => {
+  budgetTouched = true;
+  persistDraft();
+});
 document.querySelector("#clear-draft").onclick = () => {
   if (
     document.querySelector("#prompt").value.trim() &&
@@ -588,6 +615,16 @@ async function beginRevision(task) {
     document.querySelector("#task-template").value = "";
     document.querySelector("#product").checked = true;
     document.querySelector("#mode").value = task.mode;
+    document.querySelector("#expert").value = Object.hasOwn(
+      expertNames,
+      task.expert,
+    )
+      ? task.expert
+      : "auto";
+    if (task.call_limit) {
+      document.querySelector("#call-limit").value = task.call_limit;
+      budgetTouched = true;
+    }
     const note = document.querySelector("#revision-note");
     note.textContent =
       "Đang sửa bản " +
@@ -693,17 +730,30 @@ async function taskAction(id, action, button) {
     button.disabled = false;
   }
 }
-async function retry(id, button) {
+async function retry(task, button) {
+  const id = task.id;
   if (
     !confirm(
       "Tạo một lượt chạy mới từ bước đầu và giữ nguyên kết quả cũ? OpenAI có thể phát sinh thêm phí; Ollama chạy trên máy.",
     )
   )
     return;
+  const chosen = prompt(
+    "Giới hạn lượt gọi cho lượt chạy mới (1–100), gồm chuyên gia và đội thực thi:",
+    String(task.call_limit || 20),
+  );
+  if (chosen === null) return;
+  const limit = Number(chosen);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    document.querySelector("#error").textContent =
+      "Giới hạn lượt gọi phải từ 1 đến 100";
+    return;
+  }
   button.disabled = true;
   try {
     const response = await apiFetch("/api/tasks/" + id + "/retry", {
       method: "POST",
+      body: JSON.stringify({ call_limit: limit }),
     });
     const data = await response.json();
     if (!response.ok) throw Error(data.error);
@@ -778,6 +828,10 @@ async function refresh() {
       "/" +
       team.queue.capacity;
     queuePaused = team.queue.paused;
+    document.querySelector("#supervisor-state").textContent =
+      team.supervisors_active
+        ? "Chuyên gia ECC đang giao việc cho đội thực thi"
+        : "Chuyên gia ECC sẵn sàng · chọn theo mẫu hoặc chọn riêng khi giao việc";
     document.querySelector("#queue-state").textContent =
       (queuePaused ? "Đang tạm dừng" : "Sẵn sàng nhận việc") +
       " · " +
@@ -839,6 +893,17 @@ async function refresh() {
         );
       }
       const timing = el("p", "");
+      if (t.call_limit)
+        card.append(
+          el(
+            "p",
+            (expertNames[t.expert] || "Đội cơ bản") +
+              " → Đội thực thi · lượt gọi " +
+              t.model_calls +
+              "/" +
+              t.call_limit,
+          ),
+        );
       timing.className = "progress-text";
       timing.dataset.duration = "";
       timing.dataset.start = t.started_at || "";
@@ -887,8 +952,12 @@ async function refresh() {
         details.append(
           el(
             "h4",
-            { plan: "Kế hoạch", result: "Kết quả", review: "Kiểm tra" }[key] ||
-              key,
+            {
+              supervise: "Chỉ đạo chuyên gia ECC",
+              plan: "Kế hoạch",
+              result: "Kết quả",
+              review: "Kiểm tra",
+            }[key] || key,
           ),
           el("pre", key === "review" ? reviewText(value) : value),
         );
@@ -945,7 +1014,7 @@ async function refresh() {
         )
       ) {
         const button = el("button", "Chạy lại từ đầu");
-        button.onclick = () => retry(t.id, button);
+        button.onclick = () => retry(t, button);
         card.append(button);
       }
       root.append(card);

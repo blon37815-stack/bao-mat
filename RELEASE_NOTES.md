@@ -1,3 +1,36 @@
+# Đợt chuyên gia ECC, phân công và tài nguyên
+
+- Thêm 5 hồ sơ chuyên gia thích ứng từ ECC: lập kế hoạch, kiến trúc,
+  Python, web và dữ liệu JSON. Một chuyên gia tạo bản giao việc cho ba
+  vai trò cũ; lưu chỉ đạo trong kết quả, lịch sử và báo cáo. Có thể chọn
+  đội cơ bản. Không thay đổi mô hình đang dùng hoặc chạy plugin ECC.
+- Giữ nguồn vai trò ở third_party/ecc, ghim commit và SHA-256 từng tệp,
+  kèm LICENSE MIT. App dùng bản hướng dẫn tiếng Việt đã điều chỉnh;
+  không tự nạp hook, MCP hoặc quyền công cụ của kho upstream.
+- Giới hạn riêng 1–100 lượt gọi/nhiệm vụ, mặc định 20, tính cả chuyên gia
+  và vòng sửa. SQLite chặn nguyên tử trước lời gọi; hết mức chuyển Cần
+  bạn xem, giữ kết quả từng phần và giải phóng worker. Chạy lại cho nhập
+  giới hạn mới, không sửa lịch sử hoặc tự nâng mức.
+- Lưu chính sách mặc định và số việc chờ 1–10; giữ sau khởi động và trong
+  bản sao lưu. Thay mặc định không đổi hạn mức các nhiệm vụ đã giao.
+- Bảng tài nguyên đọc CPU/RAM máy chủ và NVIDIA nếu có nvidia-smi, cache
+  ngắn và thời hạn lấy GPU 1 giây. Thiếu số liệu ghi chưa đọc được; đây
+  là quan sát, chưa áp hạn mức cứng CPU/RAM/GPU hoặc dừng Ollama.
+- Bộ đánh giá mặc định dùng chuyên gia theo mẫu; --expert none cho phép
+  so sánh với đội cơ bản. Chưa có số đo chất lượng mô hình thật để kết
+  luận tầng chuyên gia giúp tăng tỷ lệ đạt.
+
+Kiểm chứng cục bộ: 105 unittest Python và 8 luồng Chromium trên Linux,
+LangGraph 1.2.16 thật, provider giả lập. Có kiểm tra giới hạn đồng thời,
+hết lượt giữa bộ tệp, chạy lại với mức mới, chính sách sau nạp lại và bảo
+vệ API. RAM Linux đọc được; trường hợp không có GPU hiển thị đúng. Chưa
+kiểm chứng số đo phần cứng Windows/NVIDIA hoặc suy luận Ollama thật; chưa
+xác nhận CI remote xanh, chưa gộp PR hoặc gắn thẻ.
+
+Cập nhật: dừng app, chạy cap-nhat.bat, chọn Y mở lại và Ctrl+F5 trình
+duyệt. Updater cài thêm psutil 7.2.2 từ requirements.txt. SQLite tự thêm
+task_assignment/resource_policy; giữ nhiệm vụ cũ và bộ nhớ hiện có.
+
 # Đợt sinh từng tệp và đánh giá chất lượng
 
 - Mẫu JSON/Python/web sinh nội dung từng tệp; ứng dụng ghép bộ sản phẩm.

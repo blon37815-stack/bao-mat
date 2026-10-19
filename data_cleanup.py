@@ -43,7 +43,7 @@ def apply_cleanup(db, plan, timestamp):
         db.execute('CREATE TEMP TABLE cleanup_targets (id TEXT PRIMARY KEY)')
         db.executemany('INSERT INTO cleanup_targets VALUES (?)',[(task_id,) for task_id in ids])
         db.execute('DELETE FROM task_step_cleanup WHERE step_id IN (SELECT id FROM task_steps WHERE task_id IN (SELECT id FROM cleanup_targets))')
-        for table in ('task_steps','task_timing','task_memory','task_products','task_requirements','task_sources','task_generation'):
+        for table in ('task_steps','task_timing','task_memory','task_products','task_requirements','task_sources','task_generation','task_assignment'):
             db.execute('DELETE FROM '+table+' WHERE task_id IN (SELECT id FROM cleanup_targets)')
         db.execute('DELETE FROM tasks WHERE id IN (SELECT id FROM cleanup_targets)')
     return current

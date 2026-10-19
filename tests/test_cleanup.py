@@ -30,6 +30,7 @@ class CleanupTest(unittest.TestCase):
             db.execute('INSERT INTO task_products VALUES (?,1)',(identifier,))
             db.execute('INSERT INTO task_requirements VALUES (?,?)',(identifier,'{}'))
             db.execute('INSERT INTO task_generation VALUES (?,?,?)',(identifier,'per_file',5))
+            db.execute('INSERT INTO task_assignment VALUES (?,?,?,?)',(identifier,'data',20,'source'))
             db.execute('INSERT INTO task_timing VALUES (?,?,?)',(identifier,created,created))
             db.execute('INSERT INTO task_steps(task_id,role,attempt,started_at,finished_at,status,output) VALUES (?,?,1,?,?,?,?)',
                        (identifier,'result',created,created,'completed','Nội dung lượt cũ'))
@@ -83,7 +84,7 @@ class CleanupTest(unittest.TestCase):
             self.assert_task_exists(identifier)
         with app.connect() as db:
             self.assertIsNone(db.execute('SELECT id FROM tasks WHERE id="old"').fetchone())
-            for table in ('task_memory','task_products','task_timing','task_steps','task_requirements','task_generation'):
+            for table in ('task_memory','task_products','task_timing','task_steps','task_requirements','task_generation','task_assignment'):
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM '+table+' WHERE task_id="old"').fetchone()[0],0)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM task_sources').fetchone()[0],1)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM task_retries').fetchone()[0],1)

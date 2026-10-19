@@ -22,7 +22,8 @@ test('per-file workflow with a fixture provider shows three files and request co
   await page.locator('#submit').click();
   const card=page.locator('#tasks article').filter({hasText:'Kiểm thử sinh từng tệp trên trình duyệt'});
   await expect(card).toContainText('AI đánh giá đạt');
-  await expect(card).toContainText('Sinh từng tệp riêng · 5 lượt yêu cầu mô hình');
+  await expect(card).toContainText('Sinh từng tệp riêng · 6 lượt yêu cầu mô hình');
+  await expect(card).toContainText('ECC · Dữ liệu JSON → Đội thực thi · lượt gọi 6/20');
   await card.getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
   await expect(page.locator('#file-list button')).toHaveText(['notes.json','config.json','README.md']);
   await page.locator('#close-files').click();
@@ -58,11 +59,11 @@ test('pause, submit demo, resume and inspect actual step history', async ({page}
   await expect(card).not.toContainText('Hoàn thành mô phỏng');
   await page.locator('#toggle-queue').click();
   await expect(card).toContainText('Hoàn thành mô phỏng');
-  await expect(card.locator('[data-duration]')).toContainText('Đã xong 3 bước');
+  await expect(card.locator('[data-duration]')).toContainText('Đã xong 4 bước');
   await card.getByRole('button',{name:'Lịch sử từng bước'}).click();
   await expect(page.locator('#file-dialog')).toBeVisible();
   await expect(page.locator('#dialog-title')).toHaveText('Lịch sử từng bước');
-  await expect(page.locator('#file-list button')).toHaveCount(3);
+  await expect(page.locator('#file-list button')).toHaveCount(4);
   await page.locator('#file-list button').filter({hasText:'Điều phối'}).click();
   await expect(page.locator('#file-content')).toContainText('Kiểm tra tạm dừng bằng trình duyệt');
 });
@@ -150,4 +151,34 @@ test('cleanup previews, requires typed confirmation, preserves final output and 
   await page.locator('#apply-cleanup').click();
   await expect(page.locator('#cleanup-status')).toContainText('Đã dọn 1 mục');
   await expect(card).toHaveCount(0);
+});
+
+test('resource controls persist policy and bounded expert work can retry with more calls', async ({page}) => {
+  await expect(page.locator('#resource-memory')).toContainText('GiB');
+  await expect(page.locator('#resource-scope')).toContainText('máy chủ ứng dụng');
+  await page.locator('#default-call-limit').fill('3');
+  await page.locator('#max-waiting').fill('2');
+  await page.locator('#save-resources').click();
+  await expect(page.locator('#resource-status')).toContainText('Đã lưu');
+  await expect(page.locator('#queue-state')).toContainText('/2 việc chờ');
+  try {
+    await page.locator('#task-template').selectOption('data');
+    await page.locator('#mode').selectOption('ollama');
+    await page.locator('#call-limit').fill('3');
+    await page.locator('#prompt').fill('Kiểm thử sinh từng tệp trên trình duyệt');
+    await page.locator('#submit').click();
+    const card=page.locator('#tasks article').filter({hasText:'Kiểm thử sinh từng tệp trên trình duyệt'}).first();
+    await expect(card).toContainText('Đã dùng hết giới hạn lượt gọi');
+    await expect(card).toContainText('lượt gọi 3/3');
+    await card.getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
+    await expect(page.locator('#file-list button')).toHaveText(['notes.json']);
+    await page.locator('#close-files').click();
+    page.removeAllListeners('dialog');
+    page.on('dialog',dialog=>dialog.type()==='prompt'?dialog.accept('6'):dialog.accept());
+    await card.getByRole('button',{name:'Chạy lại từ đầu'}).click();
+    await expect(card).toContainText('AI đánh giá đạt');
+    await expect(card).toContainText('lượt gọi 6/6');
+  } finally {
+    await post(page,'/api/resource-policy',{default_call_limit:20,max_waiting:10});
+  }
 });

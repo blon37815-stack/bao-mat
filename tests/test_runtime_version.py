@@ -14,7 +14,7 @@ class RuntimeVersionTest(unittest.TestCase):
     def test_source_snapshot_does_not_change_when_files_change_after_start(self):
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)
-            for name in ('app.py','index.html','app.js','styles.css','requirements.txt'):
+            for name in ('app.py','index.html','app.js','resource_ui.js','styles.css','requirements.txt'):
                 (root/name).write_text('original',encoding='utf-8')
             with patch.object(runtime_version,'ROOT',root),patch.object(runtime_version.subprocess,'run',side_effect=FileNotFoundError):
                 first=runtime_version.startup_info()

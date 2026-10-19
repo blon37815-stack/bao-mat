@@ -7,6 +7,7 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 echo Se thu ca JSON data_basic 10 lan bang Ollama tren may.
+echo Moi lan co chuyen gia ECC theo mau, toi da 20 luot goi mo hinh.
 echo Viec nay co the lau. Giu Ollama mo; dung app va cac phien chat khac de so lieu de so sanh.
 echo Ket qua nam trong data\evaluations. Khong chay ma do bot tao.
 choice /c YN /n /m "Bat dau danh gia? (Y/N): "

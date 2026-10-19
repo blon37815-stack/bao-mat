@@ -55,3 +55,17 @@ class EvaluationTest(unittest.TestCase):
         notes=json.loads(files[0]['content']);notes[0]['content']='Dòng 1\nDòng "2"'
         files[0]['content']=json.dumps(notes)
         self.assertTrue(evaluate.inspect_result(json.dumps({'files':files}),CASES[2])['passed'])
+
+    def test_evaluation_can_measure_supervised_team_with_an_explicit_budget(self):
+        def provider(messages):
+            context=json.loads(messages[1]['content'])
+            if context.get('target_path'):
+                self.assertIn('supervise',context)
+                return {'notes.json':valid_notes(),'config.json':'{}','README.md':'# Mẫu'}[context['target_path']]
+            return '{"passed":true,"issues":[]}' if 'result' in context else 'Giao việc theo tiêu chí'
+        with tempfile.TemporaryDirectory() as temporary,patch.object(app,'ollama_reply',side_effect=provider),contextlib.redirect_stdout(io.StringIO()):
+            report=evaluate.run_evaluation([CASES[0]],1,Path(temporary)/'supervised.json','auto',6)
+        self.assertTrue(report['trials'][0]['passed'])
+        self.assertEqual(report['trials'][0]['calls'],6)
+        self.assertEqual(report['expert'],'auto')
+        self.assertEqual(report['call_limit'],6)

@@ -4,6 +4,11 @@
 hiện → Kiểm tra**, giữ lịch sử và tải sản phẩm. LangGraph điều phối các vai
 trò; SQLite lưu dữ liệu. Ollama mặc định dùng `qwen3:4b` trên cùng máy.
 
+Nhiệm vụ mới có thể dùng một chuyên gia cấp trên thích ứng từ ECC để giao
+việc cho ba vai trò. Bộ quản lý phân công và giới hạn lượt gọi do mã thực
+thi; bảng tài nguyên đọc CPU/RAM và GPU nếu có hỗ trợ. ECC không tự cung
+cấp mô hình mạnh hơn: chuyên gia và đội thực thi dùng mô hình bạn chọn.
+
 Đây là công cụ tạo nội dung và bộ tệp. App chưa chạy chương trình do bot
 viết, chưa có Docker/sandbox, tự sửa mã ứng dụng đang chạy hoặc triển khai.
 CrewAI, Letta và OpenHands chưa được tích hợp.
@@ -55,6 +60,9 @@ Tạo sản phẩm theo mẫu: chọn **Bắt đầu từ mẫu** và giữ yêu
 Kiểm tra dòng tệp thực tế bắt buộc trước khi bấm Giao nhiệm vụ. Chỉ gõ
 "Mẫu dữ liệu JSON" vào ô yêu cầu không gắn bộ tiêu chí của mẫu.
 
+Chọn Chuyên gia cấp trên (mặc định Tự chọn theo mẫu) và giới hạn lượt gọi
+riêng cho nhiệm vụ. Đội cơ bản bỏ bước chuyên gia và giữ ba vai trò cũ.
+
 | Mẫu | Tệp bắt buộc |
 |---|---|
 | Dữ liệu JSON | notes.json, config.json, README.md |
@@ -93,6 +101,9 @@ phải sửa hai lần; mẫu web 4 tệp cần 6, tối đa 16. Bản gốc có
 thêm lần gọi. Giao diện/báo cáo ghi cách sinh và số yêu cầu mô hình đã thử;
 đây không phải số token, hóa đơn hoặc phần trăm tiến độ.
 Số này đếm lượt gọi từ ứng dụng; OpenAI SDK có thể thử lại HTTP bên trong.
+Chuyên gia thêm một lần gọi trước ba vai trò: mẫu JSON/Python thường cần
+6 lượt ở lần đạt đầu, web 7; tối đa 14/17 nếu mọi tệp đều sửa hai vòng và
+chưa chạm giới hạn riêng. Mặc định là 20 lượt cho toàn bộ một nhiệm vụ.
 
 ## Kiểm tra chất lượng và giới hạn
 
@@ -123,6 +134,8 @@ người dùng chủ động chấp nhận.
 Một tiến trình app chạy một nhiệm vụ mỗi lúc, tối đa 10 việc chờ. Đầy hàng
 đợi trả 429 mà không tạo nhiệm vụ thừa. Tạm dừng chỉ ngăn lấy việc tiếp theo,
 không ngắt việc đã chạy; trạng thái tạm dừng không giữ sau khi tắt app.
+Giới hạn việc chờ có thể hạ xuống 1–10 trong Phân công và tài nguyên; thiết
+lập được giữ sau khởi động lại. Không cho hạ thấp hơn số việc đang chờ.
 
 Hủy việc chờ giải phóng chỗ ngay. Hủy Ollama đóng tiến trình HTTP do app
 quản lý và giải phóng worker, kể cả khi stream bị kẹt. Điều đó chưa chứng
@@ -202,6 +215,51 @@ Dọn lịch sử giữ kết quả cuối/thời gian/trạng thái. Dọn nhi�
 dọn được ghi rõ trong lịch sử. Không tự dọn theo lịch; SQLite giữ trang
 trống tái sử dụng, chưa tự VACUUM. Các ZIP sao lưu vẫn chiếm chỗ và chưa tự
 xóa, có thể chứa dữ liệu riêng tư đã dọn khỏi app. Giữ chúng ngoài Git.
+Phân công chuyên gia/giới hạn riêng và chính sách mặc định cũng được sao
+lưu trong SQLite. Dọn nhiệm vụ xóa phân công riêng; không xóa chính sách chung.
+
+## Chuyên gia ECC và quản lý tài nguyên
+
+Luồng: **bạn → quản lý phân công/giới hạn → một chuyên gia ECC → Điều phối
+→ Thực hiện → Kiểm tra**. Chuyên gia tạo bản giao việc văn bản, được lưu và
+gửi cho các bước cấp dưới. Requirements, kiểm tra tĩnh và giới hạn do mã
+quy định; chỉ đạo AI không thể tăng lượt gọi hoặc cấp công cụ.
+
+Có 5 hồ sơ: lập kế hoạch, kiến trúc, Python, web, dữ liệu JSON. Auto chọn
+Python/web/JSON theo mẫu, còn lại dùng lập kế hoạch. Chỉ một chuyên gia tham
+gia mỗi nhiệm vụ; các lời gọi tuần tự trên một worker. Đây là hướng dẫn vai
+trò đã điều chỉnh, không phải chạy 71 agent hoặc plugin/runtime ECC nguyên
+bản. Không tự dùng Opus/Sonnet, không cài hook/MCP hoặc bật quyền chạy shell.
+
+Nguồn ECC ghim commit 76aaa77df6adc5b889e689007bf99b9a4f74af34. Giữ 5 bản
+định nghĩa gốc, LICENSE MIT, hash và nguồn trong third_party/ecc. App dùng
+bản thích ứng tiếng Việt ở expert_team.py; không nạp tự động các Markdown
+gốc làm chỉ dẫn hoặc chạy script upstream. Chỉ đạo được yêu cầu ngắn; quá
+6000 ký tự sẽ rút gọn và đánh dấu để tránh kéo dài context.
+
+Ngân sách do SQLite chặn nguyên tử trước mỗi lượt gọi. Tính cả chuyên gia,
+lập kế hoạch, sinh từng tệp và kiểm tra, kể cả yêu cầu lỗi đã bắt đầu. Khi
+hết lượt, dừng Cần bạn xem, giữ phần đã sinh và giải phóng worker. Không tự
+tăng giới hạn. Chạy lại cho nhập mức mới 1–100, giữ lượt cũ và số đã dùng.
+Đây là lượt gọi từ app, không phải giới hạn token/tiền hoặc mọi HTTP retry.
+
+Mặc định 20 lượt và 10 việc chờ; sửa trong Phân công và tài nguyên. Ngân
+sách riêng đã gắn nhiệm vụ không đổi khi sửa mặc định. Ô giới hạn từng
+nhiệm vụ được ưu tiên, kể cả giá trị được khôi phục từ bản nháp. Việc cũ
+chưa có chuyên gia giữ đội cơ bản; không tự đổi nội dung đã tạo.
+
+Bảng CPU/RAM là số đo toàn máy chủ app, không phải máy đang mở trình duyệt
+nếu truy cập từ xa. RAM riêng app không gồm Ollama. CPU cần hai lần lấy mẫu
+đầu tiên và được cache 2 giây. GPU chỉ đọc NVIDIA qua nvidia-smi có trên
+PATH, timeout 1 giây và cache 5 giây; AMD/Intel hoặc thiếu công cụ ghi rõ
+chưa đọc được, không giả là 0%. Không gửi số đo tới bên thứ ba.
+
+Các số đo chỉ để quan sát; app không đặt giới hạn cứng CPU/RAM/GPU, tự hạ
+xung hoặc kết thúc tiến trình khác. Muốn hạn mức phần cứng khi chạy mã sinh
+ra cần Docker/sandbox ở bước sau. API: GET /api/experts, GET /api/resources;
+POST /api/resource-policy nhận default_call_limit và max_waiting, cần token.
+POST /api/tasks nhận expert (auto/none hoặc id hồ sơ) và call_limit;
+POST /api/tasks/{id}/retry có thể nhận call_limit mới.
 
 ## Cấu hình và phạm vi sử dụng
 
@@ -254,6 +312,8 @@ các phiên chat khác để tránh nhiễu, rồi chạy hoặc mở danh-gia.b
 Báo cáo ở data/evaluations, dùng SQLite tạm riêng; không sửa/xóa dữ liệu app.
 Ghi tỷ lệ đạt lượt đầu/cuối, thời gian, số yêu cầu và commit. Mốc 8/10 chưa
 được xác nhận bằng mô hình thật trong môi trường cloud này.
+CLI mặc định --expert auto --call-limit 20. Thêm --expert none để so sánh
+đội cơ bản với tầng chuyên gia trên cùng ca/mô hình/máy.
 
 ## Phát triển và CI
 
@@ -282,7 +342,7 @@ npm run format:check
 BAO_TEST_PYTHON đổi Python kiểm thử; PLAYWRIGHT_EXECUTABLE_PATH dùng Chromium
 có sẵn. Bộ trình duyệt chạy app thật với SQLite tạm ở cổng 8989, mô phỏng
 provider; LangGraph thật vẫn điều phối. Không dùng khóa API hoặc dữ liệu
-người dùng. npm run format định dạng app.js/index.html/styles.css.
+người dùng. npm run format định dạng app.js/resource_ui.js/index.html/styles.css.
 
 Actions cấu hình Python 3.12, unittest, Prettier và Chromium trên Windows/
 Ubuntu; lưu trace khi lỗi. Có cấu hình không đồng nghĩa CI đã xanh. Xem

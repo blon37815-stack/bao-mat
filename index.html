@@ -6,6 +6,7 @@
     <title>Đội bot · Bao Mat</title>
     <link rel="stylesheet" href="/styles.css" />
     <script defer src="/app.js"></script>
+    <script defer src="/resource_ui.js"></script>
   </head>
   <body>
     <header>
@@ -16,7 +17,11 @@
       </div>
       <a class="nav-link" href="#task-section">Xem nhiệm vụ ↓</a>
     </header>
-    <div class="roles" aria-label="Trạng thái đội bot">
+    <p class="progress-text">
+      Quản lý phân công → Chuyên gia ECC → Đội thực thi
+    </p>
+    <p id="supervisor-state">Chuyên gia ECC sẵn sàng nhận nhiệm vụ mới.</p>
+    <div class="roles" aria-label="Trạng thái đội thực thi">
       <span>Điều phối</span><span>Thực hiện</span><span>Kiểm tra</span>
     </div>
     <section class="queue-panel" aria-label="Điều khiển hàng đợi">
@@ -29,6 +34,62 @@
       </div>
       <button id="toggle-queue" disabled>Tạm dừng hàng đợi</button>
     </section>
+    <details class="panel" open id="resources-panel">
+      <summary>Phân công và tài nguyên</summary>
+      <p class="hint">
+        Chuyên gia dùng hướng dẫn thích ứng từ ECC và mô hình bạn chọn. Bộ quản
+        lý giới hạn lượt gọi bằng mã, không gọi thêm AI.
+      </p>
+      <div class="resource-grid">
+        <div>
+          <strong>CPU máy chủ</strong>
+          <p id="resource-cpu">Đang lấy mẫu…</p>
+        </div>
+        <div>
+          <strong>RAM máy chủ</strong>
+          <p id="resource-memory">Đang lấy mẫu…</p>
+        </div>
+        <div>
+          <strong>GPU</strong>
+          <p id="resource-gpu">Đang kiểm tra khả năng đọc…</p>
+        </div>
+      </div>
+      <p id="resource-active" class="progress-text"></p>
+      <small id="resource-scope"
+        >Số liệu của máy chạy app. Giới hạn lượt gọi và hàng đợi không phải giới
+        hạn cứng CPU/RAM/GPU.</small
+      >
+      <form id="resource-form">
+        <div class="compose-options">
+          <div>
+            <label for="default-call-limit"
+              >Lượt gọi mặc định cho nhiệm vụ mới</label
+            ><input
+              id="default-call-limit"
+              type="number"
+              min="1"
+              max="100"
+              value="20"
+              required
+            />
+          </div>
+          <div>
+            <label for="max-waiting"
+              >Tối đa việc chờ · vẫn chỉ chạy một việc mỗi lúc</label
+            ><input
+              id="max-waiting"
+              type="number"
+              min="1"
+              max="10"
+              value="10"
+              required
+            />
+          </div>
+        </div>
+        <button id="save-resources" class="secondary">Lưu giới hạn</button>
+        <p id="resource-status" role="status"></p>
+      </form>
+    </details>
     <details class="panel">
       <summary>Kết nối và dữ liệu</summary>
       <p id="health-status" role="status">Chưa kiểm tra Ollama</p>
@@ -123,6 +184,35 @@
           <option value="data">Mẫu dữ liệu JSON</option>
         </select>
         <p id="template-requirements" class="hint"></p>
+        <div class="compose-options">
+          <div>
+            <label for="expert">Chuyên gia cấp trên</label
+            ><select id="expert">
+              <option value="auto">Tự chọn theo mẫu</option>
+              <option value="planner">ECC · Lập kế hoạch</option>
+              <option value="architect">ECC · Kiến trúc</option>
+              <option value="python">ECC · Python</option>
+              <option value="web">ECC · Web</option>
+              <option value="data">ECC · Dữ liệu JSON</option>
+              <option value="none">Đội cơ bản · không thêm chuyên gia</option>
+            </select>
+          </div>
+          <div>
+            <label for="call-limit">Tối đa lượt gọi mô hình cho việc này</label
+            ><input
+              id="call-limit"
+              type="number"
+              min="1"
+              max="100"
+              value="20"
+              required
+            />
+          </div>
+        </div>
+        <small
+          >Mẫu JSON có chuyên gia thường cần 6 lượt ở lần đạt đầu. Hết lượt thì
+          dừng và giữ kết quả; không tự tăng giới hạn.</small
+        >
         <p id="revision-note" hidden></p>
         <button id="cancel-revision" type="button" hidden>
           Bỏ chọn bản gốc

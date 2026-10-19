@@ -36,6 +36,13 @@ Chỉ dùng mô hình đã tải và vừa RAM. Ví dụ qwen2.5-coder:7b là l�
 so sánh khi máy đủ tài nguyên, chưa được đo ở đây. Không tự chuyển sang
 OpenAI hoặc gọi API trả phí.
 
+Mặc định CLI dùng --expert auto và --call-limit 20, gồm lời gọi chuyên gia
+ECC. Thêm --expert none để so sánh với đội cơ bản, hoặc chọn planner,
+architect, python, web, data. Ngân sách được ghi trong báo cáo; hết mức là
+chưa đạt chứ không tự tăng. Chuyên gia thêm một lời gọi nhưng vẫn dùng mô
+hình bạn chọn. Các kiểm thử gọi helper trực tiếp có thể dùng đội cơ bản để
+giữ điều kiện đối chiếu.
+
 ## Ý nghĩa kết quả
 
 Báo cáo JSON nằm trong data/evaluations (hoặc --output đường-dẫn-mới).

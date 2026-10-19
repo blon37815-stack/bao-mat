@@ -14,6 +14,8 @@ def fixture_ollama(messages):
     context=json.loads(messages[1]['content'])
     if context.get('prompt')!='Kiểm thử sinh từng tệp trên trình duyệt':
         raise RuntimeError('Unexpected inference in browser test')
+    if context.get('team_request')=='supervise':
+        return 'Chuyên gia ECC giao ba tệp dữ liệu và yêu cầu đối chiếu lược đồ.'
     path=context.get('target_path')
     if path:
         notes=[{'id':i,'title':'Ghi chú','content':'Nội dung','created_at':'2026-10-19T00:00:00Z'} for i in range(3)]
@@ -26,6 +28,7 @@ app.ollama_reply=fixture_ollama
 with tempfile.TemporaryDirectory(prefix='bao-mat-ui-') as temporary:
     app.DB = Path(temporary)/'tasks.sqlite3'
     app.recover()
+    app.configure_queue()
     # Old data exists only in this disposable test instance, never in the app.
     old='2020-01-01T00:00:00+00:00'
     with app.connect() as db:
