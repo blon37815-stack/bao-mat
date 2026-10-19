@@ -12,6 +12,23 @@ test.beforeEach(async ({page}) => {
   await post(page, '/api/queue', {paused:false});
   await page.goto('/');
   await expect(page.locator('#toggle-queue')).toBeEnabled();
+  await expect(page.locator('#app-version')).toContainText('commit');
+});
+
+test('per-file workflow with a fixture provider shows three files and request counts', async ({page}) => {
+  await page.locator('#task-template').selectOption('data');
+  await page.locator('#mode').selectOption('ollama');
+  await page.locator('#prompt').fill('Kiểm thử sinh từng tệp trên trình duyệt');
+  await page.locator('#submit').click();
+  const card=page.locator('#tasks article').filter({hasText:'Kiểm thử sinh từng tệp trên trình duyệt'});
+  await expect(card).toContainText('AI đánh giá đạt');
+  await expect(card).toContainText('Sinh từng tệp riêng · 5 lượt yêu cầu mô hình');
+  await card.getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
+  await expect(page.locator('#file-list button')).toHaveText(['notes.json','config.json','README.md']);
+  await page.locator('#close-files').click();
+  const download=page.waitForEvent('download');
+  await card.getByRole('link',{name:'Tải mã nguồn ZIP'}).click();
+  expect((await download).suggestedFilename()).toMatch(/^product-.*\.zip$/);
 });
 
 test('restores a draft and provider after reload; failed submit keeps draft', async ({page}) => {

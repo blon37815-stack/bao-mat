@@ -1,0 +1,73 @@
+# Đánh giá chất lượng sinh sản phẩm
+
+Bộ đánh giá có 9 ca cố định trong evaluation_cases.py, gồm JSON cơ bản,
+Unicode, escaping; Python cơ bản, lưu trữ, Unicode; web ghi chú, mobile,
+tìm kiếm. Các ca Python/web thay đổi yêu cầu nhưng hiện chỉ kiểm tra tĩnh;
+chưa chứng minh các tính năng được mô tả hoạt động.
+
+## Chạy và so sánh
+
+Mặc định chỉ liệt kê, không gọi Ollama hoặc thay đổi dữ liệu người dùng:
+
+```powershell
+.\.venv\Scripts\python.exe evaluate.py
+```
+
+Chạy 10 lượt một ca để đo mục tiêu ít nhất 8 lượt đạt:
+
+```powershell
+.\.venv\Scripts\python.exe evaluate.py --case data_basic --repeat 10 --run
+```
+
+Chạy một lần cả 9 ca hoặc 10 lần mỗi ca JSON:
+
+```powershell
+.\.venv\Scripts\python.exe evaluate.py --suite all --run
+.\.venv\Scripts\python.exe evaluate.py --suite data --repeat 10 --run
+```
+
+Lệnh thứ hai chạy 30 nhiệm vụ, không phải 10. Mỗi nhiệm vụ có nhiều lần gọi
+mô hình và có thể cần hai vòng sửa. Giữ Ollama mở, dừng app/phiên chat khác
+để giảm nhiễu. Không tự tải mô hình; cần Ollama/api/tags xác nhận mô hình
+đã có. Web cần Node để kiểm tra JS, thiếu thì dừng trước khi suy luận.
+
+Dùng cùng ca, số lượt và máy; đổi OLLAMA_MODEL trước khi đo mô hình khác.
+Chỉ dùng mô hình đã tải và vừa RAM. Ví dụ qwen2.5-coder:7b là lựa chọn để
+so sánh khi máy đủ tài nguyên, chưa được đo ở đây. Không tự chuyển sang
+OpenAI hoặc gọi API trả phí.
+
+## Ý nghĩa kết quả
+
+Báo cáo JSON nằm trong data/evaluations (hoặc --output đường-dẫn-mới).
+Không ghi đè báo cáo đã tồn tại. Mỗi lượt dùng nhiệm vụ/memory trống trong
+SQLite tạm; app.DB được khôi phục sau khi đo. Không truy cập SQLite người
+dùng và không chạy chương trình sản phẩm.
+
+- passed: bộ tệp cuối đủ tiêu chí tĩnh, cú pháp được kiểm tra đạt và luồng
+  kết thúc completed. AI tự đánh giá đạt riêng không đủ.
+- first_pass: bộ tệp ở lượt thực hiện đầu đã đạt tiêu chí tĩnh; không phải
+  bảo đảm chức năng hay AI review đạt ngay.
+- issues, checked, skipped: lỗi cuối và phạm vi kiểm tra.
+- calls: số yêu cầu provider đã thử, có thể gồm yêu cầu lỗi/hủy; không phải
+  số token hoặc chi phí.
+- seconds: thời gian toàn lượt, gồm kiểm tra và các vòng sửa.
+- summary theo ca: số lượt, tỷ lệ cuối đạt, số lượt đầu đạt, thời gian trung
+  vị. target_met chỉ có giá trị khi ca JSON có ít nhất 10 lượt; dưới 10 là
+  null, không suy diễn đạt mục tiêu từ vài lần thử.
+
+Hai ca JSON bổ sung kiểm tra chuỗi Unicode và content chứa cả xuống dòng
+thật lẫn dấu ngoặc kép sau parse. Tiêu chí chuẩn vẫn gồm đủ 3 tệp, 3 ghi chú,
+id duy nhất và các trường đúng định dạng. Không kiểm chứng mọi yêu cầu ngữ
+nghĩa của prompt hoặc nội dung README, DOM/CSS, chức năng Python/web.
+
+Checkpoint sau mỗi lượt; Ctrl+C đóng yêu cầu đang gọi và lưu báo cáo trạng
+thái interrupted với kết quả đã có. Mã thoát 0 khi mọi lượt đạt, 1 khi có ca
+chưa đạt, 130 khi ngắt; lỗi cấu hình/thiếu Ollama dùng lỗi CLI. Tỷ lệ 8/10
+là ngưỡng nghiệm thu đề xuất, chưa phải số đo đã đạt trên qwen3:4b.
+
+## Kiểm chứng trong repository
+
+Unittest chạy LangGraph thật, giả lập phản hồi provider để kiểm tra ghép
+tệp, chỉ sửa tệp lỗi, hủy giữa tệp, giữ escape, đếm yêu cầu và cô lập dữ liệu.
+Chromium dùng app thật và provider fixture để tải bộ JSON đủ 3 tệp. Đây là
+kiểm thử ứng dụng, không thay thế chạy evaluate.py với Ollama thật.

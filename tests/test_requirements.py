@@ -63,11 +63,12 @@ class RequirementTest(unittest.TestCase):
                 db.execute('INSERT INTO task_products VALUES (?,1)',('task',))
                 db.execute('INSERT INTO task_requirements VALUES (?,?)',('task',json.dumps(spec)))
             bad=json.dumps({'files':[{'path':'README.md','content':'Hướng dẫn sinh JSON'}]})
-            good=json.dumps({'files':data_product()})
-            with patch.object(app,'ollama_reply',side_effect=['Plan',bad,'{"passed":true,"issues":[]}',good,'{"passed":true,"issues":[]}']) as model:
+            good=data_product()
+            with patch.object(app,'ollama_reply',side_effect=['Plan',bad,good[1]['content'],good[2]['content'],'{"passed":true,"issues":[]}',good[0]['content'],'{"passed":true,"issues":[]}']) as model:
                 app.run('task','Mẫu dữ liệu JSON','ollama')
-            self.assertEqual(model.call_count,5)
-            self.assertIn('notes.json',json.loads(model.call_args_list[3].args[0][1]['content'])['review'])
+            self.assertEqual(model.call_count,7)
+            self.assertEqual([json.loads(call.args[0][1]['content'])['target_path'] for call in model.call_args_list if 'target_path' in json.loads(call.args[0][1]['content'])],['notes.json','config.json','README.md','notes.json'])
+            self.assertIn('notes.json',json.loads(model.call_args_list[5].args[0][1]['content'])['review'])
             self.assertEqual(json.loads(model.call_args_list[0].args[0][1]['content'])['requirements'],spec)
             task=app.list_tasks()['tasks'][0]
             self.assertEqual(task['status'],'completed')
@@ -83,7 +84,10 @@ class RequirementTest(unittest.TestCase):
                 db.execute('INSERT INTO task_products VALUES (?,1)',('task',))
                 db.execute('INSERT INTO task_requirements VALUES (?,?)',('task',json.dumps(spec)))
             bad=json.dumps({'files':[{'path':'README.md','content':'Hướng dẫn'}]})
-            with patch.object(app,'ollama_reply',side_effect=['Plan',bad,'{"passed":true,"issues":[]}',bad,'{"passed":true,"issues":[]}',bad,'{"passed":true,"issues":[]}']):
+            def respond(messages):
+                context=json.loads(messages[1]['content'])
+                return bad if 'target_path' in context else '{"passed":true,"issues":[]}' if 'result' in context else 'Plan'
+            with patch.object(app,'ollama_reply',side_effect=respond):
                 app.run('task','Mẫu dữ liệu JSON','ollama')
             task=app.list_tasks()['tasks'][0]
             self.assertEqual(task['status'],'needs_review')

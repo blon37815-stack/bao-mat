@@ -110,3 +110,15 @@ def check_requirements(files, spec):
             except ValueError:
                 issues.append(f'Ghi chú {index} thiếu created_at dạng ISO 8601.')
     return issues
+
+
+def requirement_findings(files, spec):
+    """Attach deterministic failures to paths without guessing from prose."""
+    present = {file['path'] for file in files}
+    findings = [{'path':path, 'message':'Thiếu tệp thực tế '+path+' trong files; mã nằm trong README không thay thế được tệp này.'}
+                for path in spec.get('required_files',[]) if path not in present]
+    single_spec = dict(spec, required_files=[])
+    for file in files:
+        findings.extend({'path':file['path'], 'message':message}
+                        for message in check_requirements([file],single_spec))
+    return findings

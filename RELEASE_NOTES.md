@@ -1,4 +1,24 @@
-# Đợt ổn định web, thời hạn và dữ liệu
+# Đợt sinh từng tệp và đánh giá chất lượng
+
+- Mẫu JSON/Python/web sinh nội dung từng tệp; ứng dụng ghép bộ sản phẩm.
+  Lỗi có đường dẫn chỉ sửa đúng tệp, giữ tệp khác. Nhận xét AI chung sửa
+  cả manifest; tối đa hai vòng sửa. Nhiệm vụ tự nhập vẫn dùng bundle cũ.
+- Lưu cách sinh và số yêu cầu mô hình; giữ kết quả đã sinh nếu hủy/lỗi ở
+  tệp sau. Nhiều tệp có thể tăng số lần gọi và thời gian xử lý.
+- Bộ đánh giá 9 ca cố định, SQLite tạm, tỷ lệ trước/sau sửa, thời gian và
+  số yêu cầu. danh-gia.bat chạy data_basic 10 lần khi người dùng chọn Y.
+  Mục tiêu JSON >=8/10 chưa được kiểm chứng bằng Ollama thật.
+- Footer/API version chụp commit/dirty/hash lúc khởi động, giúp phân biệt
+  app đang chạy với mã vừa tải. Báo cáo ghi commit của ứng dụng xuất báo cáo.
+- README đã được viết lại thành mô tả hiện tại; EVALUATION.md hướng dẫn
+  đo, REVIEW.md nêu phần cần rà soát và các giới hạn.
+
+Kiểm chứng cục bộ: 94 unittest Python và 7 luồng Chromium trên Linux.
+LangGraph 1.2.16 thật được dùng; provider được giả lập. Chưa có số đo Ollama
+8/10, kiểm chứng suy luận/CPU Windows hoặc xác nhận CI remote xanh.
+Chưa gộp PR, chưa gắn thẻ phát hành, chưa chạy mã trong Docker.
+
+# Đợt ổn định web, thời hạn và dữ liệu trước đó
 
 - Mẫu web kiểm tra liên kết HTML thực tới style.css/app.js; không tính chữ
   trong chú thích hoặc liên kết ngoài. Đây vẫn là kiểm tra tĩnh.

@@ -13,6 +13,10 @@ class InferenceCancelled(Exception):
     pass
 
 
+class EmptyResponse(ValueError):
+    pass
+
+
 def request_timeout():
     try:
         value = float(os.environ.get('OLLAMA_TIMEOUT_SECONDS','600'))
@@ -50,7 +54,7 @@ def request_completion(messages, model, base_url, cancelled=None):
                 raise RuntimeError('Ollama stream failed')
             content = json.loads(output)
             if not isinstance(content, str) or not content.strip():
-                raise ValueError('Empty Ollama response')
+                raise EmptyResponse('Empty Ollama response')
             return content
     finally:
         if process.poll() is None:

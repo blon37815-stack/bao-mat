@@ -29,6 +29,28 @@ function el(tag, text) {
   return n;
 }
 let sessionToken;
+async function loadVersion() {
+  const label = document.querySelector("#app-version");
+  try {
+    const response = await fetch("/api/version");
+    if (!response.ok) throw Error();
+    const info = await response.json();
+    label.textContent =
+      "Phiên bản " +
+      info.version +
+      " · commit " +
+      info.commit.slice(0, 12) +
+      (info.dirty_at_start ? " · Có thay đổi cục bộ lúc khởi động" : "") +
+      " · Mã nguồn " +
+      info.source_digest.slice(0, 12);
+    label.title =
+      "Khởi động: " + new Date(info.started_at).toLocaleString("vi-VN");
+  } catch {
+    label.textContent =
+      "Chưa đọc được phiên bản máy chủ; hãy khởi động lại app và tải lại trang.";
+  }
+}
+loadVersion();
 async function apiFetch(url, options = {}) {
   if (options.method === "POST") {
     if (!sessionToken) {
@@ -799,6 +821,23 @@ async function refresh() {
             : "Văn bản · chỉ có báo cáo .md",
         ),
       );
+      if (t.generation_method && t.generation_method !== "legacy") {
+        const methods = {
+          per_file: "Sinh từng tệp riêng",
+          bundle: "Sinh cả bộ tệp",
+          text: "Sinh văn bản",
+          demo: "Mô phỏng",
+        };
+        card.append(
+          el(
+            "p",
+            (methods[t.generation_method] || t.generation_method) +
+              " · " +
+              t.model_calls +
+              " lượt yêu cầu mô hình",
+          ),
+        );
+      }
       const timing = el("p", "");
       timing.className = "progress-text";
       timing.dataset.duration = "";

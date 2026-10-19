@@ -1,406 +1,275 @@
 # Bao Mat — Đội bot
 
-Bản đầu của bảng điều hành tiếng Việt: giao nhiệm vụ, theo dõi luồng
-**Điều phối → Thực hiện → Kiểm tra**, lưu lịch sử bằng SQLite.
-LangGraph điều khiển ba bước. Chưa tích hợp CrewAI, Letta hoặc OpenHands;
-chưa có thực thi mã, truy cập tệp hay triển khai tự động.
+Ứng dụng web tiếng Việt chạy cục bộ: giao việc, theo dõi **Điều phối → Thực
+hiện → Kiểm tra**, giữ lịch sử và tải sản phẩm. LangGraph điều phối các vai
+trò; SQLite lưu dữ liệu. Ollama mặc định dùng `qwen3:4b` trên cùng máy.
 
-## Cài và chạy (Python 3.12)
+Đây là công cụ tạo nội dung và bộ tệp. App chưa chạy chương trình do bot
+viết, chưa có Docker/sandbox, tự sửa mã ứng dụng đang chạy hoặc triển khai.
+CrewAI, Letta và OpenHands chưa được tích hợp.
 
-```sh
-cd /workspace/bao-mat
-python -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python app.py
+## Cài, chạy và cập nhật trên Windows
+
+Cài Python 3.12 và Python Launcher, Git, Ollama. Tải mô hình một lần:
+
+```powershell
+ollama run qwen3:4b
 ```
 
-Máy chủ chỉ lắng nghe trên loopback, cổng 8000. Dùng trình duyệt trên máy
-chạy ứng dụng hoặc đường hầm được quản lý để truy cập. Không đưa máy chủ này
-trực tiếp lên Internet: bản đầu chưa có đăng nhập hoặc giới hạn tần suất truy cập.
-
-Chế độ **Mô phỏng** không gọi AI, chỉ xác minh luồng và lưu dữ liệu.
-Để dùng **AI thật**, cấp `OPENAI_API_KEY` qua biến môi trường an toàn trước
-khi chạy máy chủ. Không đưa khóa vào Git hay giao diện. `BOT_MODEL` mặc định
-là `gpt-4.1-mini`; tài khoản cần có quyền dùng mô hình. Ba bước gọi mô hình
-riêng và có thể phát sinh phí. Chế độ này chỉ tạo văn bản, chưa chạy lệnh.
-Không nhập dữ liệu nhạy cảm nếu chưa chấp nhận gửi tới nhà cung cấp mô hình.
-
-`PORT` đổi cổng, `BOT_DB` đổi đường dẫn SQLite (mặc định `data/tasks.sqlite3`).
-Lịch sử giữ lại qua lần khởi động; nhiệm vụ đang chạy bị đánh dấu gián đoạn
-và không tự chạy lại. Giao diện tìm kiếm toàn bộ lịch sử, phân trang 50 nhiệm vụ.
-
-## Kiến trúc dự kiến
-
-- Hiện tại: LangGraph + SQLite + OpenAI SDK, ba vai trò văn bản.
-- Tiếp theo: môi trường cô lập cho bot lập trình, quyền duyệt thao tác,
-  xác thực người dùng và giới hạn chi phí trước khi mở cho nhiều người.
-- Chỉ thêm Letta khi cần bộ nhớ agent dài hạn; đánh giá OpenHands như dịch vụ
-  lập trình riêng. CrewAI là lựa chọn thay thế để tổ chức đội, chưa cần xếp
-  thêm lên LangGraph ở bản đầu.
-
-## Quản lý nhiệm vụ
-
-Bảng điều hành hiển thị số nhiệm vụ đang xử lý ở từng vai trò và tổng số
-nhiệm vụ theo trạng thái. Có bộ lọc và mục chi tiết cho từng nhiệm vụ.
-Với nhiệm vụ thất bại, bị gián đoạn, đã hủy hoặc cần người xem, nút **Chạy
-lại từ đầu** tạo lượt mới và giữ kết quả cũ; chế độ AI có thể tính phí lần nữa. Không tự động
-chạy lại sau lỗi hoặc khởi động lại để tránh phát sinh chi phí ngoài ý muốn.
-
-API bổ sung: `GET /api/team`, `GET /api/tasks/{id}` và
-`POST /api/tasks/{id}/retry`. Chạy lại trả về 202 khi được nhận, 409 khi
-trạng thái không phù hợp, 404 khi không tìm thấy nhiệm vụ.
-
-## Chạy trên Windows với Ollama (không cần khóa API)
-
-Cài Python 3.12 từ python.org (chọn thêm Python vào PATH), Git và Ollama.
-Mở Ollama và chạy `ollama run qwen3:4b` ít nhất một lần để tải mô hình.
-Khi đã trò chuyện được, nhập `/bye` để thoát phiên trò chuyện; giữ ứng dụng
-Ollama chạy nền. Mở PowerShell mới:
+Khi trò chuyện được, nhập `/bye` để thoát phiên chat và giữ Ollama chạy nền.
+Lần đầu tải mã (nếu đã clone thì dùng thư mục có sẵn):
 
 ```powershell
 git clone --branch feat/bot-team-dashboard https://github.com/blon37815-stack/bao-mat.git
 cd bao-mat
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe app.py
+.\cai-dat.bat
+.\chay.bat
 ```
 
-Nếu đã clone dự án, vào đúng thư mục và chạy `git pull --ff-only` thay vì
-clone lần nữa (đảm bảo đang ở nhánh `feat/bot-team-dashboard`). Không cần
-activate môi trường ảo hay thay đổi execution policy PowerShell.
+Có thể nhấp đúp các tệp BAT. Chờ dòng `Bot team listening`, mở
+`http://127.0.0.1:8000`, giữ cửa sổ app mở. Không cần activate venv, quyền
+quản trị hoặc đổi execution policy PowerShell. BAT dùng thông báo không dấu;
+web dùng UTF-8 tiếng Việt có dấu.
 
-Trong trình duyệt trên máy Windows, truy cập `http://127.0.0.1:8000`, chọn
-**Ollama · AI trên máy**, nhập nhiệm vụ ngắn và bấm **Giao nhiệm vụ**. Mỗi nhiệm
-vụ gọi mô hình ba lần; chạy bằng CPU có thể mất vài phút. Nếu lỗi, kiểm tra
-`ollama list` có `qwen3:4b` rồi dùng nút chạy lại.
+Cập nhật: dừng app bằng **Ctrl+C**, nhập **Y** nếu Windows hỏi dừng batch,
+mở **cap-nhat.bat**, chọn Y để chạy lại và **Ctrl+F5** trên trình duyệt.
+Updater fetch và fast-forward nhánh hiện tại (`main` hoặc
+`feat/bot-team-dashboard`); dừng nếu có thay đổi/tệp chưa được quản lý.
+Requirements đổi thì cài lại phụ thuộc. Nếu cài thất bại, chạy cai-dat.bat.
 
-Mặc định kết nối `http://127.0.0.1:11434`, mô hình `qwen3:4b`. Có thể đổi
-`OLLAMA_MODEL` và `OLLAMA_BASE_URL` trong môi trường trước khi chạy, ví dụ
-`$env:OLLAMA_MODEL = 'qwen3:4b'`. Chỉ dùng máy chủ Ollama bạn tin cậy; nội dung
-nhiệm vụ được gửi đến máy chủ đó. Ứng dụng không tự chuyển sang OpenAI khi
-Ollama lỗi và không cần OPENAI_API_KEY ở chế độ này.
+Nếu nhánh feature bị xóa, chỉ tự chuyển main khi HEAD là tổ tiên của
+origin/main. Gộp bằng **Create a merge commit** để giữ quan hệ này; squash/
+rebase có thể khiến updater dừng để kiểm tra. Updater chưa tự sao lưu dữ
+liệu trước cập nhật; dùng nút sao lưu trước khi cần. Không tự reset hoặc
+xóa thay đổi cục bộ, không tự xóa dữ liệu trong data.
 
-Máy chủ Codex trên đám mây không kết nối được Ollama qua loopback của máy
-Windows; cả app và Ollama cần chạy trên cùng máy theo hướng dẫn trên.
+## Giao việc và chọn mẫu
 
-## Tải sản phẩm
+- **Mô phỏng:** không gọi mô hình; sản phẩm chỉ là README mô phỏng.
+- **Ollama:** gọi AI trên máy, không phí API; không tự chuyển sang OpenAI.
+- **OpenAI:** cần OPENAI_API_KEY, có thể tính phí; giao diện vô hiệu hóa khi
+  chưa cấu hình khóa. Đường kết nối tồn tại nhưng cần kiểm chứng riêng bằng
+  tài khoản/mô hình thật.
 
-Mở nhiệm vụ có kết quả và bấm **Tải toàn bộ báo cáo (.md)**, hoặc mở chi tiết
-để tải riêng kế hoạch, kết quả hay báo cáo kiểm tra. Tệp Markdown UTF-8 giữ
-nguyên tiếng Việt, gồm yêu cầu và trạng thái nhiệm vụ. Báo cáo mô phỏng và
-kết quả một phần được đánh dấu rõ. Phần suy nghĩ trong thẻ think được loại bỏ
-như trên giao diện. Tải xuống không gọi mô hình và không phát sinh phí API.
+Tạo sản phẩm theo mẫu: chọn **Bắt đầu từ mẫu** và giữ yêu cầu mẫu tự điền.
+Kiểm tra dòng tệp thực tế bắt buộc trước khi bấm Giao nhiệm vụ. Chỉ gõ
+"Mẫu dữ liệu JSON" vào ô yêu cầu không gắn bộ tiêu chí của mẫu.
 
-API: `GET /api/tasks/{id}/export/{all|plan|result|review}`. Trả về 409 khi
-chưa có nội dung cho phần được yêu cầu, 404 khi không tìm thấy. Bản này xuất
-nội dung văn bản thành Markdown, chưa tạo và thực thi dự án mã nguồn.
+| Mẫu | Tệp bắt buộc |
+|---|---|
+| Dữ liệu JSON | notes.json, config.json, README.md |
+| Python | main.py, tests/test_main.py, README.md |
+| Web | index.html, style.css, app.js, README.md |
+| Kế hoạch | Văn bản, không tạo ZIP |
 
-## Bộ nhớ dự án
+Mẫu sản phẩm khóa bật chế độ tạo bộ tệp cả ở giao diện và máy chủ. Tự nhập
+yêu cầu có thể chọn văn bản hoặc bộ tệp tùy ý. Mỗi lần giao việc tạo mã mới.
+Nút Chạy lại từ đầu giữ tiêu chí cũ; để chuyển nhiệm vụ cũ chưa gắn mẫu sang
+mẫu mới, tạo nhiệm vụ độc lập từ dropdown.
 
-Điền mục tiêu, yêu cầu và quyết định chung vào **Bộ nhớ dự án**, bấm **Lưu bộ
-nhớ** rồi giao nhiệm vụ. Giới hạn 8000 ký tự, lưu trong cùng SQLite nên giữ
-lại khi đóng app. Không lưu mật khẩu, khóa API hay thông tin nhạy cảm.
-Bộ nhớ được gửi kèm cả ba bước đến nhà cung cấp bạn chọn; Ollama mặc định
-chạy trên máy bạn. Đây là thông tin chung do bạn nhập, chưa tự học từ lịch sử.
+## Sinh từng tệp và sửa đúng tệp
 
-Mỗi nhiệm vụ mới giữ một bản sao bộ nhớ lúc tạo. Xem bản sao trong chi tiết
-hoặc báo cáo Markdown. Sửa bộ nhớ chung chỉ ảnh hưởng nhiệm vụ mới; chạy lại
-nhiệm vụ dùng bản sao cũ. Nhiệm vụ tạo trước phiên bản này có bộ nhớ trống.
-Để xóa bộ nhớ chung, để trống và lưu; các bản sao trong lịch sử vẫn được giữ.
-Bản đầu hỗ trợ một bộ nhớ chung, chưa phân tách nhiều dự án.
+Với mẫu có required_files, bước thực hiện gọi mô hình riêng cho từng tệp.
+Mô hình trả nội dung nguyên văn; Python ghép thành cấu trúc files để lưu và
+tải ZIP. Hỗ trợ bỏ một hàng rào Markdown bao ngoài; không giải mã lại escape
+trong mã nguồn. Nếu mô hình vẫn trả files envelope, chỉ lấy đúng tệp đang
+yêu cầu. README hướng dẫn tạo notes.json không thay thế notes.json thực tế.
 
-API: `GET /api/memory`, `POST /api/memory` với JSON `{"content":"..."}`.
+Lượt đầu sinh các tệp bắt buộc. Khi sửa phiên bản, các tệp bổ sung đã có ở
+bản gốc cũng tham gia manifest và được giữ. Mẫu mới có manifest cố định;
+yêu cầu số tệp khác dùng nhiệm vụ tùy chỉnh. Nhiệm vụ tùy chỉnh chưa có
+manifest vẫn dùng cách sinh cả bộ JSON trong một phản hồi.
 
-## Bảo vệ yêu cầu cục bộ
+Thiếu tệp, tệp rỗng, lỗi lược đồ JSON, lỗi liên kết HTML hoặc lỗi cú pháp
+được gắn với đường dẫn cụ thể. Lượt sửa chỉ gọi các tệp đó và giữ nguyên
+nội dung tệp khác. AI có thể trả file_issues để chỉ rõ tệp cần sửa; nhận xét
+chung hoặc đường dẫn không xác định khiến toàn bộ manifest được sửa lại.
+Tệp đã sinh được lưu từng bước trong kết quả hiện tại; hủy/lỗi ở tệp sau
+vẫn giữ phần đã tạo. Không tự tiếp tục từ tệp đang dở khi mở app lại.
 
-Máy chủ chỉ nhận Host `127.0.0.1:<cổng>` hoặc `localhost:<cổng>`.
-Yêu cầu có Origin phải khớp chính xác địa chỉ trang ứng dụng; Origin `null`
-và Fetch Metadata `cross-site` bị từ chối. Mọi POST yêu cầu
-`Content-Type: application/json` và `X-CSRF-Token` lấy từ `GET /api/session`.
-Giao diện tự lấy token; token đổi khi khởi động app nên cần tải lại trang.
-API client bên ngoài cũng cần lấy và gửi token. Đây là bảo vệ trước yêu cầu
-web chéo nguồn, không thay thế đăng nhập hoặc ngăn phần mềm độc hại trên máy.
-Ứng dụng vẫn chỉ dành cho sử dụng cá nhân trên loopback.
+Tối đa 2 vòng sửa, tương đương tối đa 3 lượt thực hiện. Số lần gọi không còn
+cố định 3–7: mẫu 3 tệp cần 5 lần ở lượt đạt đầu, tối đa 13 nếu mọi tệp đều
+phải sửa hai lần; mẫu web 4 tệp cần 6, tối đa 16. Bản gốc có thêm tệp sẽ cần
+thêm lần gọi. Giao diện/báo cáo ghi cách sinh và số yêu cầu mô hình đã thử;
+đây không phải số token, hóa đơn hoặc phần trăm tiến độ.
+Số này đếm lượt gọi từ ứng dụng; OpenAI SDK có thể thử lại HTTP bên trong.
 
-## Hàng đợi và lưu trữ
+## Kiểm tra chất lượng và giới hạn
 
-Trong một tiến trình app, nhiệm vụ mới và nhiệm vụ chạy lại dùng chung hàng
-đợi FIFO và một worker. Chỉ một nhiệm vụ được xử lý tại một thời điểm (cả ba
-bước); các nhiệm vụ khác giữ trạng thái Chờ. Không mở nhiều tiến trình app
-cùng dùng một cơ sở dữ liệu. Hàng đợi giới hạn 10 việc chờ; khi đóng
-app, việc chờ/đang chạy được đánh dấu gián đoạn ở lần khởi động tiếp theo,
-không tự chạy lại. SQLite bật WAL và busy_timeout 30 giây để giảm tranh chấp
-đọc/ghi; vẫn cần sao lưu đúng cả dữ liệu WAL khi app đang mở.
+- **Python:** compile trong tiến trình riêng, không execute hoặc import mã
+  sản phẩm, không cài phụ thuộc và không ghi bytecode.
+- **JSON:** kiểm tra cú pháp chuẩn. Mẫu JSON còn yêu cầu đúng 3 ghi chú, id
+  duy nhất, title/content không rỗng, created_at ISO 8601; config là object.
+- **JavaScript:** nếu có Node.js, dùng node --check (.js/.mjs dạng module,
+  .cjs CommonJS). Thiếu Node ghi rõ bỏ qua.
+- **Web:** đọc thẻ link/script trong index.html để kiểm tra liên kết tới
+  style.css/app.js. Chữ trong chú thích, URL ngoài hoặc script text/plain
+  không thay thế liên kết thực. Đây không phải kiểm thử giao diện/DOM/CSS.
 
-Bộ lọc suy nghĩ chỉ xử lý khối `<think>` ở đầu phản hồi. Với dữ liệu Qwen cũ
-thiếu thẻ mở, chỉ lọc khi có lời mở đầu suy nghĩ tiếng Anh được nhận diện và
-`</think>` nằm riêng một dòng. Thẻ được nhắc giữa câu hoặc trong khối mã được
-giữ nguyên. Đây là quy tắc nhận diện có giới hạn, chưa phân biệt hoàn hảo mọi
-trường hợp văn bản trích dẫn và suy nghĩ thiếu định dạng.
+Bộ kiểm tra cú pháp có thời hạn tổng 8 giây. Lỗi được đưa vào vòng sửa kể
+cả AI tự đánh giá đạt. Không có tệp được hỗ trợ hoặc checker không hoàn tất
+thì cần người xem. Chưa kiểm tra chức năng, import/dependency, tính an toàn
+của mã, JSX/TypeScript hoặc HTML/CSS đầy đủ.
 
-## Nhấp đúp để chạy trên Windows
+AI review dùng passed (boolean), issues (danh sách); file_issues theo tệp là
+tùy chọn. Nhận xét cũ không được biến thành quy tắc mới của reviewer. Sai
+định dạng hoặc hết vòng sửa thì dừng Cần bạn xem. Người dùng có thể duyệt
+kết quả; thiếu tệp/tiêu chí mẫu hoặc bộ tệp sai cấu trúc bị chặn. Duyệt không
+chạy mã và không chứng minh chức năng đúng; có thể vẫn còn lỗi cú pháp mà
+người dùng chủ động chấp nhận.
 
-Sau khi tải mã về, nhấp đúp **cai-dat.bat** để tạo môi trường Python 3.12 và
-cài phụ thuộc (cần Internet). Nếu đã cài thủ công, có thể bỏ qua bước này.
-Sau đó nhấp đúp **chay.bat**. Khi thấy `Bot team listening`, mở địa chỉ
-hiển thị trong cửa sổ bằng trình duyệt. Giữ cửa sổ mở và giữ Ollama chạy nền.
-Không mở nhiều bản app cùng lúc. Tệp BAT dùng thông báo không dấu để tránh
-lỗi bảng mã Windows; giao diện web vẫn dùng tiếng Việt có dấu.
+## Hàng đợi, hủy và lịch sử
 
-Các tệp BAT tự chuyển đến thư mục dự án kể cả khi đường dẫn có khoảng trắng.
-Không cần quyền quản trị hay thay đổi execution policy. Sau khi cập nhật có
-thay đổi requirements.txt, chạy lại cai-dat.bat trước khi khởi động.
+Một tiến trình app chạy một nhiệm vụ mỗi lúc, tối đa 10 việc chờ. Đầy hàng
+đợi trả 429 mà không tạo nhiệm vụ thừa. Tạm dừng chỉ ngăn lấy việc tiếp theo,
+không ngắt việc đã chạy; trạng thái tạm dừng không giữ sau khi tắt app.
 
-## Kiểm thử tự động trên GitHub
+Hủy việc chờ giải phóng chỗ ngay. Hủy Ollama đóng tiến trình HTTP do app
+quản lý và giải phóng worker, kể cả khi stream bị kẹt. Điều đó chưa chứng
+minh CPU/GPU trên máy chủ Ollama đã dừng; cần quan sát thực tế. OpenAI gọi
+đồng bộ nên việc đang gọi có thể còn chờ; yêu cầu đã gửi vẫn có thể tính phí.
 
-Workflow `.github/workflows/tests.yml` chạy trên push và pull request, dùng
-Python 3.12 trên Ubuntu và Windows. Gồm cài phụ thuộc, pip check và unittest.
-Không dùng khóa API, không tải mô hình Ollama; kết nối mô hình được giả lập
-trong kiểm thử. Xem trạng thái thực tế trong tab Actions sau khi push; việc
-có workflow không có nghĩa là một lượt chạy trên GitHub đã đạt.
+Chạy lại áp dụng cho failed/interrupted/cancelled/needs_review, tạo mã mới,
+giữ lịch sử và bản sao yêu cầu/bộ nhớ/nguồn. Mỗi nguồn có một lượt chạy lại
+trực tiếp để tránh bấm trùng; nếu lượt sau lỗi có thể chạy tiếp từ lượt đó.
 
+Lưu thời gian, nội dung từng bước và từng lượt sửa; hiển thị số bước đã
+xong và thời gian trôi qua. Đây không phải thời gian CPU hoặc dự báo còn
+lại. Khi khởi động, việc dang dở chuyển gián đoạn và không tự chạy lại.
 
-## Kiểm tra có cấu trúc và tự sửa
+## Sản phẩm, phiên bản và báo cáo
 
-Ở chế độ Ollama/OpenAI, bot kiểm tra phải trả JSON với `passed` (boolean)
-và `issues` (danh sách lỗi). Nếu chưa đạt, bước thực hiện nhận lỗi và sửa,
-sau đó kiểm tra lại. Tối đa hai lần sửa, tức tối đa ba bản kết quả và bảy
-lần gọi mô hình cho một nhiệm vụ. OpenAI có thể tốn thêm phí; Ollama có thể
-chạy lâu hơn. Luồng tự sửa giữ hàng đợi cho đến khi xong nhiệm vụ hiện tại.
+Xem bộ tệp, tải riêng hoặc tải ZIP khi sản phẩm kết thúc. Bộ tệp tối đa 30
+tệp văn bản, mỗi tệp 100 KB, tổng 1 MB UTF-8. Từ chối đường dẫn tuyệt đối,
+.., ký tự/tên thiết bị Windows không hợp lệ, đường dẫn trùng/xung đột và
+thư mục .git/.venv. Đây là bảo vệ đường dẫn, chưa kiểm tra an toàn nội dung.
+Tệp sản phẩm được lưu trong SQLite, không ghi vào cây mã nguồn máy chủ.
 
-Nếu vẫn chưa đạt hoặc mô hình trả sai định dạng, nhiệm vụ dừng ở **Cần bạn
-xem**; kết quả vẫn xem và tải được. Không coi JSON sai là đạt. Khi đạt,
-trạng thái ghi rõ đây là đánh giá của AI, chưa phải kiểm chứng bên ngoài.
-Bản đầu chỉ giữ kết quả và nhận xét mới nhất, chưa lưu lịch sử các vòng sửa.
-Chế độ mô phỏng không chạy vòng sửa. Nút duyệt và hủy chưa được triển khai.
+Yêu cầu chỉnh sửa tạo phiên bản mới từ bản sao bất biến của sản phẩm gốc;
+không ghi đè bản gốc. So sánh phiên bản hiển thị thêm/sửa/xóa. Nguồn sửa giới
+hạn 80 KB JSON UTF-8, chuỗi yêu cầu gốc 12000 ký tự để hạn chế ngữ cảnh.
 
-## Duyệt và hủy nhiệm vụ
+Xuất toàn bộ hoặc từng phần kế hoạch/kết quả/kiểm tra thành Markdown UTF-8;
+không gọi AI khi tải. Báo cáo nêu trạng thái, loại nhiệm vụ, tiêu chí mẫu,
+nguồn phiên bản, bộ nhớ lúc giao việc và cách sinh nếu lượt mới đã ghi lại.
+Nhiệm vụ cũ không được tự gán mẫu hoặc lịch sử giả.
 
-- **Hủy nhiệm vụ** áp dụng cho việc đang chờ hoặc đang xử lý. Việc chờ bị
-  bỏ qua khi worker lấy khỏi hàng đợi. Với việc đang gọi mô hình, phản hồi
-  trả về bị bỏ qua và không chạy bước tiếp theo; kết quả các bước trước vẫn
-  được giữ. Chưa có khả năng ngắt ngay phép tính bên trong Ollama/OpenAI.
-  Worker tiếp tục chờ yêu cầu hiện tại kết thúc hoặc timeout rồi mới lấy
-  việc tiếp theo. Phí OpenAI của yêu cầu đã gửi có thể vẫn phát sinh.
-- **Duyệt kết quả** chỉ áp dụng cho nhiệm vụ AI đã chạy xong hoặc cần người
-  xem và có kết quả. Trạng thái chuyển thành **Bạn đã duyệt**, giữ nguyên nội
-  dung và nhận xét kiểm tra. Việc duyệt không thực thi hay triển khai mã;
-  mô phỏng không được duyệt. Bản đầu chưa có thao tác thu hồi duyệt hoặc chạy
-  lại nhiệm vụ đã hủy; có thể tạo nhiệm vụ mới.
+Footer và GET /api/version hiển thị phiên bản, commit, mã băm nguồn và thời
+điểm khởi động. Metadata được chụp lúc khởi động, không đọc lại commit sau
+khi git pull; vì vậy cần dừng/chạy lại app sau cập nhật. Báo cáo ghi commit
+của ứng dụng xuất báo cáo, không khẳng định nhiệm vụ cũ được sinh bởi commit
+đó. ZIP rà soát không chứa .git có thể hiển thị commit unknown.
 
-API: `POST /api/tasks/{id}/cancel`, `POST /api/tasks/{id}/approve`, dùng JSON
-Content-Type và token phiên như các API ghi khác. Trả 200 khi thành công,
-409 khi trạng thái không cho phép, 404 khi không tìm thấy.
+## Bộ nhớ, tìm kiếm và bản nháp
 
-## Tạo bộ mã nguồn và tải ZIP
+Bộ nhớ chung tối đa 8000 ký tự, gửi kèm các bước đến nhà cung cấp được chọn.
+Mỗi nhiệm vụ giữ bản sao lúc tạo. Sửa bộ nhớ chỉ ảnh hưởng việc mới; để
+trống rồi lưu để xóa bộ nhớ chung. Chưa tự học, chưa phân tách nhiều dự án
+hoặc tìm kiếm kiến thức bằng FTS5. Không nhập khóa/mật khẩu vào bộ nhớ.
 
-Đánh dấu **Tạo bộ mã nguồn có thể tải ZIP**, chọn Ollama hoặc OpenAI và mô tả
-một sản phẩm nhỏ, ví dụ: "Tạo trang ghi chú bằng HTML/CSS/JavaScript thuần,
-lưu localStorage, kèm README hướng dẫn mở trang". Giữ yêu cầu nhỏ khi dùng
-qwen3:4b. Trong chế độ mô phỏng, sản phẩm chỉ có README được ghi rõ mô phỏng.
+Tìm theo yêu cầu/mã trên toàn bộ SQLite, kết hợp bộ lọc trạng thái, phân
+trang 50. Không phân biệt hoa thường; vẫn phân biệt dấu tiếng Việt; chưa
+tìm trong toàn bộ nội dung kết quả. Các thông tin danh sách lấy bằng JOIN
+trong một kết nối; kết nối được đóng khi ra khỏi context.
 
-Mô hình trả JSON `{"files":[{"path":"README.md","content":"..."}]}`.
-Các tệp được lưu trong kết quả SQLite, không ghi vào cây thư mục máy chủ.
-Khi nhiệm vụ kết thúc, bấm **Xem bộ tệp** để chọn và đọc nội dung, hoặc
-**Tải mã nguồn ZIP**. ZIP được tạo trong bộ nhớ từ dữ liệu đã kiểm tra. Chưa
-có tự chạy, cài phụ thuộc hoặc xác minh sản phẩm hoạt động; AI đánh giá đạt
-không bảo đảm mã an toàn hay chạy đúng. Đọc mã trước khi dùng và chạy mã chưa
-tin cậy trong môi trường cô lập. Chạy lại nhiệm vụ tạo lượt mới và giữ kết quả cũ; nên tải ZIP nếu cần bản sao riêng.
+Bản nháp lưu yêu cầu, chế độ, mẫu và nguồn phiên bản trong localStorage.
+Giao lỗi giữ nháp; giao thành công mới xóa nháp tương ứng. Nháp chỉ ở trình
+duyệt hiện tại, không thuộc bản sao lưu SQLite. Polling giữ phần kết quả
+đang mở khi dữ liệu chưa đổi. Kiểm tra Ollama chỉ gọi api/tags, không suy
+luận; có mô hình chưa chứng minh suy luận sẽ thành công.
 
-Giới hạn: 30 tệp văn bản, 100 KB mỗi tệp, tổng 1 MB nội dung UTF-8; không có
-tệp nhị phân. Từ chối đường dẫn tuyệt đối, `..`, dấu gạch chéo ngược, ký tự
-đặc biệt Windows, tên thiết bị dành riêng, đường dẫn trùng không phân biệt
-hoa/thường, xung đột tệp/thư mục, thư mục .git và .venv. Nếu bộ tệp không hợp
-lệ, vòng kiểm tra yêu cầu sửa tối đa hai lần; vẫn lỗi thì không tải hoặc duyệt
-được bộ mã. Các quy tắc đường dẫn không phải kiểm tra độ an toàn nội dung mã.
+## Sao lưu, khôi phục và dọn dữ liệu
 
-API thêm: `GET /api/tasks/{id}/files` trả danh sách tệp; `GET
-/api/tasks/{id}/artifact.zip` tải ZIP. Chỉ dùng khi nhiệm vụ sản phẩm đã kết
-thúc ở completed/needs_review/approved. Khi tạo nhiệm vụ, đặt `product:true`
-trong JSON; mặc định false để giữ quy trình văn bản cũ.
+Kết nối và dữ liệu → Tải bản sao lưu: ZIP gồm tasks.sqlite3 và KHOI-PHUC.txt.
+SQLite backup API chụp nhất quán cả khi WAL đang mở. Có lịch sử, sản phẩm,
+bộ nhớ, tiêu chí và số lần gọi mô hình; không gồm mã app, .env, venv, mô hình
+Ollama hoặc nháp trình duyệt. ZIP dùng RAM, phù hợp dữ liệu cá nhân nhỏ.
 
-## Chỉnh sửa sản phẩm qua nhiều phiên bản
+Khôi phục: dừng app hoàn toàn, giữ nguyên thư mục data cũ ở nơi riêng, tạo
+data mới và chép tasks.sqlite3 từ ZIP vào đó. Không ghép với -wal/-shm cũ.
+Nếu dùng BOT_DB, khôi phục đúng đường dẫn đó. Thử trên bản dự án riêng và
+đối chiếu số nhiệm vụ/bộ nhớ trước khi dùng làm dữ liệu chính. Việc dang dở
+trong bản sao sẽ được đánh dấu gián đoạn khi app mở. Chưa có nút khôi phục.
 
-Ở nhiệm vụ có bộ mã hợp lệ, bấm **Yêu cầu chỉnh sửa**. Giao diện chọn bản gốc
-và đưa bạn về ô giao việc; nhập thay đổi mong muốn, chẳng hạn "Thêm tìm kiếm,
-giữ các tính năng cũ", rồi giao nhiệm vụ. Đây là nhiệm vụ mới, không ghi đè
-sản phẩm gốc. Có thể bấm **Bỏ chọn bản gốc** để trở lại tạo sản phẩm độc lập.
+Dọn dữ liệu: chọn lịch sử từng lượt hoặc nhiệm vụ độc lập, giữ 1–3650 ngày
+(mặc định 30), xem trước rồi nhập DỌN. Xem trước có hiệu lực 5 phút; dữ liệu
+đổi phải xem lại. Chỉ dọn khi không còn việc chạy/chờ hoặc yêu cầu đang hủy.
+App ghi và flush bản ZIP vào data/backups (hoặc backups cạnh BOT_DB), sau
+đó mới xóa trong giao dịch SQLite. Không lưu được bản sao thì không dọn.
 
-Nhiệm vụ mới giữ bản sao bất biến của toàn bộ tệp gốc cùng chuỗi yêu cầu
-trước đó, đồng thời dùng bộ nhớ dự án hiện tại lúc giao việc. Bot phải trả
-lại toàn bộ bộ tệp, bao gồm tệp không đổi. Xem **So sánh với bản gốc** để biết
-tệp thêm/sửa/xóa, đọc diff và kiểm tra mô hình có vô tình bỏ tệp hay không.
-Việc duyệt vẫn do bạn thực hiện; so sánh không xác minh chức năng chạy đúng.
-Mỗi nhiệm vụ ghi mã bản gốc trong chi tiết và báo cáo Markdown. Các bản vẫn được lưu trong SQLite và có thể tìm theo mã nhiệm vụ.
+Dọn lịch sử giữ kết quả cuối/thời gian/trạng thái. Dọn nhiệm vụ giữ cả hai
+đầu của liên kết phiên bản/chạy lại; bộ nhớ chung luôn được giữ. Nội dung đã
+dọn được ghi rõ trong lịch sử. Không tự dọn theo lịch; SQLite giữ trang
+trống tái sử dụng, chưa tự VACUUM. Các ZIP sao lưu vẫn chiếm chỗ và chưa tự
+xóa, có thể chứa dữ liệu riêng tư đã dọn khỏi app. Giữ chúng ngoài Git.
 
-Trong **Xem bộ tệp**, chọn một tệp và bấm **Tải [tên tệp]** để tải riêng; mã
-được tải như tệp đính kèm, không được thực thi hoặc hiển thị như trang HTML
-trên máy chủ. Tải ZIP vẫn giữ nguyên cấu trúc thư mục.
+## Cấu hình và phạm vi sử dụng
 
-Để giữ ngữ cảnh vừa phải, bản đầu chỉ nhận chỉnh sửa bộ mã gốc tối đa 80 KB
-JSON UTF-8 và chuỗi yêu cầu trước đó tối đa 12000 ký tự. Mô hình nhỏ vẫn có
-thể không giữ hết nội dung; ưu tiên sản phẩm nhỏ và kiểm tra diff sau mỗi
-lần sửa. Giới hạn này không phải cam kết về dung lượng ngữ cảnh mô hình.
+| Biến | Mặc định / ý nghĩa |
+|---|---|
+| PORT | 8000, chỉ nghe loopback |
+| BOT_DB | data/tasks.sqlite3 |
+| OLLAMA_MODEL | qwen3:4b |
+| OLLAMA_BASE_URL | http://127.0.0.1:11434 |
+| OLLAMA_TIMEOUT_SECONDS | 600; cho phép 1–7200 giây mỗi lần gọi |
+| OPENAI_API_KEY | Khóa qua môi trường nếu chủ động dùng OpenAI |
+| BOT_MODEL | gpt-4.1-mini cho OpenAI |
 
-API: khi `POST /api/tasks`, thêm `parent_id` của nhiệm vụ sản phẩm đã kết
-thúc và có bộ tệp hợp lệ; server tự bật `product:true`. Nguồn sai trả 404/409,
-nguồn quá lớn trả 413. `GET /api/tasks/{id}/diff` trả thay đổi so với bản sao
-gốc; `GET /api/tasks/{id}/file/{index}` tải một tệp trong danh sách files.
-
-## Nhấp đúp để cập nhật
-
-Dừng app bằng Ctrl+C (nhập Y nếu Windows hỏi dừng batch), rồi nhấp đúp
-**cap-nhat.bat**. Tệp chạy `git pull --ff-only` trên nhánh
-`feat/bot-team-dashboard`, dừng nếu có thay đổi/tệp chưa được Git quản lý,
-không tự reset hoặc xóa tệp. Dữ liệu data, khóa .env và .venv được Git bỏ qua.
-Nếu requirements.txt đổi, tự cập nhật phụ thuộc bằng Python trong .venv.
-Nếu cài thư viện thất bại, mã có thể đã được cập nhật; chạy cai-dat.bat để
-khắc phục trước khi mở app. Cuối cùng chọn Y để mở đội bot hoặc N để đóng.
-Giữ Ollama chạy nền, tải lại trình duyệt bằng Ctrl+F5 sau khi khởi động app.
-
-## Tìm kiếm, kết nối và sao lưu
-
-- **Tìm nhiệm vụ:** tìm trong yêu cầu hoặc mã nhiệm vụ trên toàn bộ SQLite,
-  kết hợp bộ lọc trạng thái. Không phân biệt hoa/thường, vẫn phân biệt dấu
-  tiếng Việt; không tìm trong nội dung kết quả. Phân trang 50 việc mỗi trang.
-- **Kiểm tra Ollama:** chạy khi mở trang hoặc bấm nút, gọi `/api/tags` (không
-  sinh nội dung) để kiểm tra dịch vụ đang phản hồi và đã tải mô hình cấu hình.
-  Có mô hình không chứng minh một yêu cầu suy luận sẽ thành công. Kiểm tra
-  không thử khóa OpenAI; API chỉ cho biết khóa đã được cấu hình hay chưa.
-- **Tải bản sao lưu:** tạo ZIP gồm tasks.sqlite3 và hướng dẫn khôi phục. Dùng
-  SQLite backup API để có ảnh chụp nhất quán kể cả khi đang bật WAL. Chứa tất
-  cả lịch sử, bộ nhớ, sản phẩm và bản gốc của các phiên bản sửa; không chứa
-  mã ứng dụng, .env, môi trường ảo hoặc mô hình Ollama. Không gửi bản sao lưu
-  cho người khác nếu bên trong có dữ liệu riêng tư.
-
-Khôi phục thủ công: dừng app hoàn toàn, giữ lại cả thư mục data cũ ở nơi an
- toàn, tạo thư mục data mới rồi giải nén tasks.sqlite3 vào đó. Không ghép cơ
-sở dữ liệu khôi phục với -wal/-shm từ bản cũ. Nếu đặt BOT_DB riêng, dùng đúng
-đường dẫn đó. Khởi động lại; nhiệm vụ chờ/đang xử lý trong bản sao sẽ được
-đánh dấu gián đoạn. Bản đầu chưa có nút khôi phục hoặc sao lưu định kỳ.
-
-API: `GET /api/tasks?q=...&status=all&offset=0` trả tasks, total, limit=50,
-offset. `GET /api/health` kiểm tra kết nối; `POST /api/backup` tải ZIP, yêu
-cầu Content-Type JSON và token phiên. Bản sao được tạo ở thư mục tạm rồi
-xóa; dữ liệu ZIP được giữ trong RAM lúc tải, phù hợp cơ sở dữ liệu cá nhân
-nhỏ. Nhiệm vụ hoàn thành sau thời điểm chụp sẽ cần bản sao lưu tiếp theo.
-
-## Mẫu nhiệm vụ và kiểm tra cú pháp sản phẩm
-
-Chọn một mẫu ở ô giao việc: kế hoạch sản phẩm, trang ghi chú web, ứng dụng
-Python dòng lệnh hoặc bộ dữ liệu JSON. Mẫu chỉ điền yêu cầu và chọn chế độ
-tạo bộ mã, không tự giao việc hay đổi nhà cung cấp AI. Nếu đang có yêu cầu
-hoặc bản gốc được chọn, giao diện hỏi trước khi thay thế.
-
-Ở bộ sản phẩm, bấm **Kiểm tra cú pháp** để xem từng tệp đạt/lỗi/bỏ qua.
-Hỗ trợ `.py` theo phiên bản Python đang chạy và `.json` theo JSON chuẩn.
-HTML/CSS/JavaScript cùng các loại khác được ghi rõ chưa hỗ trợ. Tệp Python
-được compile thành code object trong một tiến trình Python riêng, không
-execute, không import module của sản phẩm, không cài phụ thuộc hay viết
-bytecode. Có timeout 8 giây; nếu bộ kiểm tra lỗi hoặc quá hạn thì không
-kết luận đạt. Đây là kiểm tra cú pháp, không phải sandbox để chạy mã, kiểm
-thử chức năng, kiểm tra bảo mật hoặc bảo đảm sản phẩm hoạt động.
-
-Trong bước kiểm tra của luồng tạo/sửa sản phẩm, lỗi cú pháp Python/JSON được
-đưa vào danh sách lỗi để bot sửa (vẫn tối đa hai lần). Kết luận AI "đạt"
-không ghi đè lỗi cú pháp do bộ kiểm tra phát hiện. Nếu bộ kiểm tra không
-hoàn tất, nhiệm vụ cần người xem. Tải mã lỗi vẫn được phép để bạn kiểm tra;
-người dùng vẫn có thể chủ động duyệt kết quả, việc duyệt không tự sửa lỗi.
-
-API: `GET /api/tasks/{id}/checks` trả status, checked, skipped và findings.
-Các trạng thái gồm passed (chỉ các tệp được hỗ trợ), failed, not_supported
-(không có tệp được hỗ trợ), unavailable (không kiểm tra được). Kết quả kiểm
-tra được tính lại khi bấm nút; chưa lưu lịch sử báo cáo kiểm tra.
-
-
-## Cập nhật xử lý hủy, nhánh và mức kiểm chứng
-
-**Hủy Ollama:** dùng API streaming trong một tiến trình HTTP riêng do app
-quản lý. Khi hủy, app kết thúc tiến trình yêu cầu, đóng kết nối và giải
-phóng worker để lấy việc tiếp theo, kể cả lúc stream chưa có dòng hoàn
-chỉnh. Không chạy mã do mô hình sinh ra trong tiến trình đó. Đóng kết nối
-không phải bằng chứng máy chủ Ollama đã ngừng tính hoặc giải phóng GPU; còn
-phụ thuộc Ollama. OpenAI vẫn dùng lệnh gọi đồng bộ và chưa có hủy tức thì.
-
-Mỗi lần gọi Ollama có thời hạn tổng mặc định 600 giây, kể cả khi stream vẫn
-đang gửi dữ liệu. Có thể đặt `OLLAMA_TIMEOUT_SECONDS` từ 1 đến 7200 giây;
-giá trị sai sẽ làm yêu cầu thất bại, không tự bỏ giới hạn. Trên PowerShell,
-đặt trước khi mở app trong cùng cửa sổ (chỉ áp dụng cho phiên đó):
+Đặt biến trước khi chạy app trong cùng PowerShell, ví dụ:
 
 ```powershell
 $env:OLLAMA_TIMEOUT_SECONDS = '1200'
 .\chay.bat
 ```
 
-Thời hạn áp dụng cho từng lượt gọi mô hình, không phải toàn bộ nhiệm vụ.
-Tăng giới hạn cho máy chậm; nút Hủy vẫn hoạt động trong khi chờ Ollama.
-Biến này không thay đổi thời hạn OpenAI hoặc bộ kiểm tra cú pháp.
+Ollama và app cần trên cùng máy nếu dùng loopback. Cloud không truy cập
+được Ollama của máy Windows qua 127.0.0.1. Thời hạn trên áp dụng từng lần
+gọi, không phải toàn bộ nhiệm vụ hoặc OpenAI/checker; giá trị sai làm yêu
+cầu thất bại. Bộ lọc think chỉ bỏ khối suy nghĩ đầu câu, giữ thẻ trong nội
+dung thông thường; quy tắc nhận diện không hoàn hảo với mọi phản hồi lỗi.
 
-**Cập nhật nhánh:** cap-nhat.bat hỗ trợ main và feat/bot-team-dashboard.
-Fetch rồi fast-forward từ nhánh origin tương ứng. Nếu nhánh feature bị xóa,
-chỉ tự chuyển main khi kiểm chứng được HEAD hiện tại là tổ tiên của
-origin/main. Trường hợp squash/rebase chưa chứng minh được bằng phép kiểm
-tra này thì dừng và giữ mã, không reset hay xóa nhánh để ép cập nhật.
+Host chỉ nhận localhost/127.0.0.1 đúng cổng; kiểm tra Origin/Fetch Metadata.
+Mọi POST cần application/json và X-CSRF-Token từ GET /api/session. Token đổi
+khi khởi động; giao diện tự lấy. API client cũng phải gửi token. Đây chưa
+phải đăng nhập/phân quyền. Không mở ứng dụng trực tiếp ra Internet hoặc
+chạy nhiều tiến trình app cùng một SQLite. WAL và busy_timeout 30 giây đã
+bật; không thay thế sao lưu. Khóa, data, backups và venv được loại khỏi Git.
 
-**JavaScript:** nếu có Node.js trên PATH, nút Kiểm tra cú pháp và vòng sửa
-sẽ dùng `node --check` cho .js/.mjs (module) và .cjs (CommonJS). Mã chỉ được
-phân tích, không thực thi, không cài npm hay nạp phụ thuộc dự án. Thiếu Node
-thì ghi rõ bỏ qua. HTML/CSS, JSX/TypeScript và kiểm thử chức năng vẫn chưa
-được hỗ trợ. Có thể cài Node.js LTS từ nodejs.org rồi mở lại app để bật kiểm
-tra JS. Kiểm tra cú pháp đạt không chứng minh DOM, CSS, import, tương tác,
-lưu trữ hay logic chương trình hoạt động.
+## Bộ đánh giá Ollama cố định
 
-Nếu sản phẩm không có tệp nào được kiểm tra cú pháp độc lập, AI đánh giá đạt
-vẫn dừng ở Cần bạn xem. Nếu có kiểm tra, trạng thái ghi số tệp đã kiểm tra
-và bỏ qua, cùng giới hạn chưa kiểm thử chức năng. Người dùng có thể xem và
-chủ động duyệt; chưa có tự chạy test của sản phẩm trong sandbox.
+Xem EVALUATION.md. Có 9 ca (3 JSON, 3 Python, 3 web), không chạy mã sản phẩm.
+Mặc định chỉ liệt kê, không gọi mô hình:
 
+```powershell
+.\.venv\Scripts\python.exe evaluate.py --suite data
+```
 
-## Giới hạn hàng đợi và lịch sử chạy lại
+Để đo mục tiêu JSON ít nhất 8/10 cho ca cơ bản, giữ Ollama mở, dừng app và
+các phiên chat khác để tránh nhiễu, rồi chạy hoặc mở danh-gia.bat:
 
-Tối đa 10 việc đang chờ ngoài một việc đang xử lý. Việc mới và chạy lại dùng
-chung giới hạn; API trả 429 khi đầy, không tạo bản ghi nhiệm vụ thừa. Trên
-bảng điều hành hiển thị số việc chờ/giới hạn và tạm khóa nút giao việc khi
-đầy. Hủy việc chờ xóa ngay mục tương ứng khỏi hàng đợi để nhận việc khác.
-Giới hạn áp dụng trong một tiến trình; không chạy nhiều app cùng dùng SQLite.
+```powershell
+.\.venv\Scripts\python.exe evaluate.py --case data_basic --repeat 10 --run
+```
 
-Chạy lại hỗ trợ failed/interrupted/cancelled/needs_review. Mỗi lần tạo mã
-nhiệm vụ mới, sao chép yêu cầu, chế độ, bộ nhớ ban đầu và bản sao mã nguồn
-nếu có; không xóa kết quả cũ. Một nguồn chỉ tạo một lượt chạy lại trực tiếp,
-tránh bấm trùng; nếu lượt mới lại lỗi thì chạy tiếp từ lượt mới đó. Giao diện
-có liên kết **Xem lượt trước** và **Xem lượt chạy lại**. Việc đã duyệt hoặc
-hoàn thành không được chạy lại bằng nút này; dùng yêu cầu chỉnh sửa sản phẩm.
+Báo cáo ở data/evaluations, dùng SQLite tạm riêng; không sửa/xóa dữ liệu app.
+Ghi tỷ lệ đạt lượt đầu/cuối, thời gian, số yêu cầu và commit. Mốc 8/10 chưa
+được xác nhận bằng mô hình thật trong môi trường cloud này.
 
-`POST /api/tasks/{id}/retry` trả 202 với id mới và retry_of; 409 nếu không
-được phép hoặc đã tạo lượt, 429 khi đầy. Lượt cũ giữ trạng thái và dữ liệu
-nguyên vẹn. Quan hệ lượt chạy được sao lưu trong SQLite. Danh sách nhiệm vụ
-lấy bộ nhớ, sản phẩm và quan hệ phiên bản bằng JOIN trong một kết nối, không
-mở thêm kết nối theo từng nhiệm vụ trên trang.
+## Phát triển và CI
 
-## Đợt nâng cấp dùng hằng ngày
+Dùng checkout hiện có; mỗi cloud task đã cô lập, không cần tạo worktree mới.
+Trên Linux:
 
-Chi tiết ở [RELEASE_NOTES.md](RELEASE_NOTES.md). Giao diện được tách thành
-index.html, app.js và styles.css; cả ba đều cần khi chạy app.
+```sh
+python -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip check
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python app.py
+```
 
-- **Tạm dừng hàng đợi / Tiếp tục hàng đợi:** chỉ tác động tới việc chưa được
-  worker lấy; việc đã bắt đầu tiếp tục chạy. Tạm dừng không phải hủy hay lưu
-  checkpoint giữa bước, không tự giữ sau khi tắt app.
-- **Lịch sử từng bước:** chọn trên thẻ nhiệm vụ để xem các kết quả từng lượt
-  và thời gian, kể cả bản kết quả trước khi sửa. Nhiệm vụ từ bản cũ có thể
-  chưa có lịch sử, kết quả cuối vẫn được giữ.
-- **Bản nháp:** tự lưu trên trình duyệt này, gồm yêu cầu, chế độ và bản gốc
-  được chọn. Lỗi giao việc không xóa nháp. Xóa bằng nút Xóa bản nháp; dữ liệu
-  đã giao không bị xóa. Nháp không nằm trong SQLite hay bản sao lưu dữ liệu.
-
-API thêm: `POST /api/queue` với JSON `{"paused":true|false}`, yêu cầu token
-phiên; `GET /api/tasks/{id}/history` trả steps và timing. Danh sách có thêm
-started_at, finished_at và completed_steps. Các bảng mới được tạo tự động,
-không cần reset dữ liệu.
-
-### Kiểm thử giao diện cho người phát triển
-
-Chạy unittest như trước. Để kiểm tra Chromium, cài Node.js 22+ và chạy:
+Kiểm thử giao diện (Node.js 22+ chỉ dành cho phát triển; Node cũng cần nếu
+muốn kiểm tra cú pháp sản phẩm JavaScript):
 
 ```sh
 npm ci --prefix tests/ui
@@ -410,105 +279,11 @@ npm test
 npm run format:check
 ```
 
-Config mặc định dùng Python trong .venv. Có thể đặt BAO_TEST_PYTHON thành
-đường dẫn Python đã cài phụ thuộc. Nếu có sẵn Chromium, đặt
-PLAYWRIGHT_EXECUTABLE_PATH thành đường dẫn trình duyệt để không tải lại.
-Máy chủ kiểm thử dùng SQLite tạm ở cổng 8989, không dùng dữ liệu app của bạn.
-Dùng chế độ mô phỏng để kiểm tra giao việc, lịch sử, tải tệp và các thao tác
-trình duyệt; các kiểm thử mô hình thật vẫn là kiểm tra riêng.
-`npm run format` định dạng app.js, index.html và styles.css bằng Prettier
-đã ghim phiên bản; CI kiểm tra định dạng cùng kiểm thử. Node/Prettier chỉ
-dành cho phát triển, không cần để chạy dashboard trên Windows.
+BAO_TEST_PYTHON đổi Python kiểm thử; PLAYWRIGHT_EXECUTABLE_PATH dùng Chromium
+có sẵn. Bộ trình duyệt chạy app thật với SQLite tạm ở cổng 8989, mô phỏng
+provider; LangGraph thật vẫn điều phối. Không dùng khóa API hoặc dữ liệu
+người dùng. npm run format định dạng app.js/index.html/styles.css.
 
-## Tiêu chí nghiệm thu của mẫu sản phẩm
-
-Mẫu được chọn ở dropdown sẽ lưu bộ tiêu chí cùng nhiệm vụ, ngoài phần yêu
-cầu văn bản. Mẫu dữ liệu JSON bắt buộc tạo notes.json, config.json và
-README.md thành ba mục trong files; hướng dẫn sinh tệp hoặc mã nhúng trong
-README không thay thế các tệp thực tế. notes.json phải chứa đúng 3 ghi chú,
-id duy nhất (chuỗi/số nguyên), title/content không rỗng và created_at ISO
-8601; config.json phải là đối tượng JSON. Trường bổ sung như priority được
-phép. Nếu muốn cấu trúc khác, chọn tự nhập yêu cầu để tạo nhiệm vụ độc lập.
-
-Mẫu web bắt buộc index.html, style.css, app.js, README.md; mẫu Python bắt
-buộc main.py, tests/test_main.py, README.md. Mẫu web còn đọc thẻ HTML để
-kiểm tra index.html liên kết style.css bằng link rel=stylesheet và tải
-app.js bằng script src. Chấp nhận đường dẫn tương đối cùng bộ tệp và query/
-fragment; chữ trong chú thích, URL ngoài, base trỏ ra ngoài hoặc script
-type=text/plain không được tính là liên kết hợp lệ. Đây là kiểm tra tĩnh
-về sự hiện diện, liên kết và cú pháp hỗ trợ, chưa thực thi hoặc chứng minh
-DOM, CSS hay tính năng ghi chú hoạt động. Các lỗi tiêu chí
-được đưa vào vòng sửa ngay cả khi mô hình tự đánh giá đạt. Thiếu tiêu chí
-sau hai lần sửa thì dừng cần người xem và không cho duyệt như sản phẩm đủ.
-
-Bộ tiêu chí hiện ở ô giao việc, chi tiết nhiệm vụ, báo cáo và mục kiểm tra.
-Chạy lại sao chép bộ tiêu chí; chỉnh sửa sản phẩm kế thừa tiêu chí bản gốc
-khi không chọn mẫu mới. Dữ liệu cũ không có template metadata không được tự
-gán tiêu chí dựa trên phỏng đoán. Để kiểm chứng mẫu, tạo nhiệm vụ mới bằng
-chọn mẫu ở dropdown; không chỉ gõ tên mẫu như một yêu cầu chung chung.
-Chế độ mô phỏng không thực thi kiểm tra tiêu chí sản phẩm thật, được ghi rõ
-skipped_demo trong báo cáo kiểm tra. Tiêu chí mẫu không phải sandbox hay
-kiểm thử chức năng của ứng dụng.
-
-Khi chọn mẫu JSON/web/Python, chế độ tạo bộ tệp được khóa bật ở giao diện
-và bắt buộc ở máy chủ, kể cả client cũ gửi product=false. Muốn chỉ tạo văn
-bản, chọn Tự nhập yêu cầu hoặc mẫu Lập kế hoạch. Trước nút giao việc và trên
-thẻ nhiệm vụ đều có nhãn loại kết quả. Nhiệm vụ văn bản chỉ xuất báo cáo .md,
-không có ZIP; việc cũ không tự chuyển thành nhiệm vụ sản phẩm sau cập nhật.
-
-## Dọn dữ liệu có xem trước
-
-Mở **Kết nối và dữ liệu → Dọn dữ liệu cũ**, chọn phạm vi và số ngày muốn
-giữ (1–3650, mặc định 30), rồi bấm **Xem trước dữ liệu sẽ dọn**. Xem số mục,
-số nhiệm vụ và tối đa 5 ví dụ; chưa có thao tác xóa ở bước này. Bản xem
-trước hết hạn sau 5 phút, đổi lựa chọn phải xem trước lại. Nhập đúng `DỌN`
-và bấm **Lưu bản sao và dọn** mới thực hiện.
-
-- **Nội dung lịch sử từng lượt:** bỏ nội dung trong task_steps của nhiệm vụ
-  đã kết thúc trước mốc chọn; giữ thời gian, trạng thái, kết quả cuối, sản
-  phẩm, bộ nhớ lúc giao việc và liên kết phiên bản. Lịch sử ghi rõ lượt đã
-  dọn; không hiện như thể bot chưa tạo kết quả.
-- **Toàn bộ nhiệm vụ cũ độc lập:** xóa nhiệm vụ cùng lịch sử và dữ liệu
-  riêng đi kèm. Giữ cả hai đầu của mọi liên kết phiên bản/chạy lại để không
-  làm đứt chuỗi. Bộ nhớ dự án chung luôn được giữ.
-
-Mốc tuổi tính theo thời điểm kết thúc, hoặc thời điểm tạo nếu dữ liệu cũ
-chưa có thời gian kết thúc. Việc đang chạy/chờ luôn được giữ; thao tác dọn
-bị từ chối nếu còn việc đang chạy/chờ hoặc kết nối Ollama đã hủy chưa đóng.
-Dữ liệu đổi sau khi xem trước cũng khiến thao tác bị từ chối, cần xem lại.
-
-Trước mỗi lần dọn, app ghi bản ZIP nhất quán vào **data/backups/** (hoặc
-backups cạnh BOT_DB tùy chỉnh), hoàn tất ghi xuống đĩa rồi mới xóa trong
-giao dịch SQLite. Không ghi được bản sao thì không dọn. Sau khi dọn có link
-tải bản sao; cách khôi phục như phần sao lưu ở trên. Thư mục backups được
-loại khỏi Git; bản sao vẫn có thể chứa dữ liệu riêng tư đã xóa trong app.
-
-Số KiB xem trước chỉ ước lượng nội dung chính, không phải dung lượng đĩa
-sẽ giảm. SQLite giữ trang trống để tái sử dụng; app không tự VACUUM. Bản
-sao trước khi dọn cũng chiếm dung lượng và không bị tự xóa. Sau khi kiểm
-tra dữ liệu/khôi phục, bạn tự quản lý các ZIP cũ nếu cần lấy lại chỗ trống.
-Không có lịch tự dọn và không tự xóa dữ liệu khi mở app/cập nhật.
-
-API dọn dùng token phiên và JSON như các thao tác ghi khác:
-`POST /api/cleanup/preview` nhận scope (history/tasks), days;
-`POST /api/cleanup/apply` nhận token xem trước và confirmation="DỌN".
-`GET /api/backups/<tên ZIP>` chỉ tải tên bản sao do app sinh, không duyệt
-thư mục hoặc nhận đường dẫn tùy ý.
-
-Trước khi gộp PR, vẫn cần thử Windows với Ollama thật (hủy, tạm dừng/giao
-hai việc, tải ZIP và bản sao), đồng thời xác nhận CI Windows/Ubuntu xanh.
-Chọn **Create a merge commit** để updater kiểm chứng được quan hệ tổ tiên
-khi chuyển nhánh feature sang main. Kiểm thử trong Docker với network none
-vẫn là bước phát triển tiếp theo, chưa được bật trong bản này.
-
-Báo cáo sản phẩm ghi rõ khi nhiệm vụ chưa có bộ tiêu chí mẫu. Nhiệm vụ
-chỉnh sửa kế thừa cấu trúc cũ và tiêu chí cũ nếu có; không tự biến thành mẫu
-mới chỉ vì nhập tên mẫu trong yêu cầu. Khi cần mẫu có files bắt buộc, tạo
-nhiệm vụ độc lập bằng dropdown. Giao diện nhắc điều này khi chọn bản gốc.
-
-Bot kiểm tra nhận bản result mới nhất, chính sách cho phép README.md và
-bộ tiêu chí đã lưu. Không đưa nhận xét vòng trước vào prompt của chính bot
-kiểm tra; bot thực hiện vẫn nhận nhận xét đó để sửa. Đây là hướng dẫn mô
-hình, chưa phải bảo đảm loại bỏ mọi nhận xét sai; kiểm tra xác định vẫn giữ
-vai trò phát hiện thiếu tệp/cú pháp/schema độc lập. Trạng thái needs_review
-trong báo cáo được mô tả là luồng đã dừng cần người xem.
+Actions cấu hình Python 3.12, unittest, Prettier và Chromium trên Windows/
+Ubuntu; lưu trace khi lỗi. Có cấu hình không đồng nghĩa CI đã xanh. Xem
+RELEASE_NOTES.md và REVIEW.md để biết kiểm chứng, giới hạn và phần cần rà.
