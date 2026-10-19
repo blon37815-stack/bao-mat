@@ -401,3 +401,28 @@ PLAYWRIGHT_EXECUTABLE_PATH thành đường dẫn trình duyệt để không t�
 Máy chủ kiểm thử dùng SQLite tạm ở cổng 8989, không dùng dữ liệu app của bạn.
 Dùng chế độ mô phỏng để kiểm tra giao việc, lịch sử, tải tệp và các thao tác
 trình duyệt; các kiểm thử mô hình thật vẫn là kiểm tra riêng.
+
+## Tiêu chí nghiệm thu của mẫu sản phẩm
+
+Mẫu được chọn ở dropdown sẽ lưu bộ tiêu chí cùng nhiệm vụ, ngoài phần yêu
+cầu văn bản. Mẫu dữ liệu JSON bắt buộc tạo notes.json, config.json và
+README.md thành ba mục trong files; hướng dẫn sinh tệp hoặc mã nhúng trong
+README không thay thế các tệp thực tế. notes.json phải chứa đúng 3 ghi chú,
+id duy nhất (chuỗi/số nguyên), title/content không rỗng và created_at ISO
+8601; config.json phải là đối tượng JSON. Trường bổ sung như priority được
+phép. Nếu muốn cấu trúc khác, chọn tự nhập yêu cầu để tạo nhiệm vụ độc lập.
+
+Mẫu web bắt buộc index.html, style.css, app.js, README.md; mẫu Python bắt
+buộc main.py, tests/test_main.py, README.md. Đây là kiểm tra sự hiện diện và
+cú pháp hỗ trợ, chưa thực thi hoặc chứng minh chức năng. Các lỗi tiêu chí
+được đưa vào vòng sửa ngay cả khi mô hình tự đánh giá đạt. Thiếu tiêu chí
+sau hai lần sửa thì dừng cần người xem và không cho duyệt như sản phẩm đủ.
+
+Bộ tiêu chí hiện ở ô giao việc, chi tiết nhiệm vụ, báo cáo và mục kiểm tra.
+Chạy lại sao chép bộ tiêu chí; chỉnh sửa sản phẩm kế thừa tiêu chí bản gốc
+khi không chọn mẫu mới. Dữ liệu cũ không có template metadata không được tự
+gán tiêu chí dựa trên phỏng đoán. Để kiểm chứng mẫu, tạo nhiệm vụ mới bằng
+chọn mẫu ở dropdown; không chỉ gõ tên mẫu như một yêu cầu chung chung.
+Chế độ mô phỏng không thực thi kiểm tra tiêu chí sản phẩm thật, được ghi rõ
+skipped_demo trong báo cáo kiểm tra. Tiêu chí mẫu không phải sandbox hay
+kiểm thử chức năng của ứng dụng.

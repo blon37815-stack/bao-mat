@@ -82,7 +82,7 @@ class WorkflowTest(unittest.TestCase):
             with urllib.request.urlopen(memory_request) as response:
                 self.assertTrue(json.load(response)['saved'])
             self.assertEqual(get('/api/memory')['content'], 'Dự án tiếng Việt')
-            create_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thử bộ nhớ','mode':'demo','product':True}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
+            create_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thử bộ nhớ','mode':'demo','product':True,'template':'data'}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
             with urllib.request.urlopen(create_request) as response:
                 new_id = json.load(response)['id']
             for _ in range(100):
@@ -93,6 +93,7 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(new_task['project_memory'], 'Dự án tiếng Việt')
             self.assertEqual(new_task['status'], 'completed')
             self.assertTrue(new_task['product'])
+            self.assertIn('notes.json',new_task['requirements']['required_files'])
             self.assertEqual(get('/api/tasks/'+new_id+'/files')['files'][0]['path'], 'README.md')
             self.assertEqual(get('/api/tasks/'+new_id+'/checks')['status'], 'not_supported')
             with urllib.request.urlopen(base+'/api/tasks/'+new_id+'/file/0') as response:
@@ -107,6 +108,7 @@ class WorkflowTest(unittest.TestCase):
                     break
                 time.sleep(.02)
             self.assertEqual(child['parent_id'], new_id)
+            self.assertEqual(child['requirements'],new_task['requirements'])
             self.assertTrue(child['product'])
             self.assertEqual(get('/api/tasks/'+child_id+'/diff')['changes'], [])
             for path in ('/api/tasks/'+new_id+'/file/99','/api/tasks/'+new_id+'/file/../app.py'):

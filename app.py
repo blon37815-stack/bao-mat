@@ -18,6 +18,7 @@ from typing import TypedDict
 from artifacts import parse_files, zip_files, check_files
 from maintenance import ollama_health, backup_database
 from ollama_transport import request_completion, InferenceCancelled as TaskCancelled
+from task_requirements import template_requirements, check_requirements
 from langgraph.graph import StateGraph, START, END
 
 class TaskQueue(queue.Queue):
@@ -102,6 +103,7 @@ def connect():
     db.execute('CREATE TABLE IF NOT EXISTS task_timing (task_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT)')
     db.execute("CREATE TABLE IF NOT EXISTS task_steps (id INTEGER PRIMARY KEY, task_id TEXT NOT NULL, role TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL, output TEXT NOT NULL DEFAULT '')")
     db.execute('CREATE INDEX IF NOT EXISTS task_steps_by_task ON task_steps(task_id,id)')
+    db.execute('CREATE TABLE IF NOT EXISTS task_requirements (task_id TEXT PRIMARY KEY, spec TEXT NOT NULL)')
     return db
 
 
@@ -154,6 +156,12 @@ def task_source(task_id):
     return dict(row) if row else None
 
 
+def get_requirements(task_id):
+    with connect() as db:
+        row = db.execute('SELECT spec FROM task_requirements WHERE task_id=?',(task_id,)).fetchone()
+    return json.loads(row['spec']) if row else {}
+
+
 def product_diff(task_id):
     source = task_source(task_id)
     if source is None:
@@ -180,7 +188,7 @@ TASK_STATUSES = ('queued','running','completed','needs_review','failed','interru
 TASK_SELECT = '''SELECT t.*, COALESCE(p.enabled,0) AS product,
     COALESCE(m.content,'') AS project_memory, s.parent_id,
     next.child_id AS retry_id, prev.parent_id AS retry_of,
-    timing.started_at, timing.finished_at,
+    timing.started_at, timing.finished_at, COALESCE(requirements.spec,'{}') AS requirements,
     (SELECT COUNT(*) FROM task_steps step WHERE step.task_id=t.id AND step.status='completed') AS completed_steps
     FROM tasks t
     LEFT JOIN task_products p ON p.task_id=t.id
@@ -188,7 +196,8 @@ TASK_SELECT = '''SELECT t.*, COALESCE(p.enabled,0) AS product,
     LEFT JOIN task_sources s ON s.task_id=t.id
     LEFT JOIN task_retries next ON next.parent_id=t.id
     LEFT JOIN task_retries prev ON prev.child_id=t.id
-    LEFT JOIN task_timing timing ON timing.task_id=t.id'''
+    LEFT JOIN task_timing timing ON timing.task_id=t.id
+    LEFT JOIN task_requirements requirements ON requirements.task_id=t.id'''
 
 
 def list_tasks(query='', status='all', offset=0):
@@ -275,9 +284,12 @@ def task_action(task_id, action):
         elif action == 'approve':
             if is_product(task_id):
                 try:
-                    parse_files(json.loads(row['output']).get('result',''))
+                    files = parse_files(json.loads(row['output']).get('result',''))
                 except ValueError:
                     return 409, {'error':'Bộ tệp chưa hợp lệ; chưa thể duyệt'}
+                issues = check_requirements(files,get_requirements(task_id))
+                if issues:
+                    return 409, {'error':issues[0]}
             if row['mode'] == 'demo' or not json.loads(row['output']).get('result'):
                 return 409, {'error':'Không thể duyệt mô phỏng hoặc nhiệm vụ chưa có kết quả'}
             changed = db.execute("UPDATE tasks SET status='approved', stage='Người dùng đã duyệt kết quả' WHERE id=? AND status IN ('completed','needs_review')", (task_id,)).rowcount
@@ -309,6 +321,7 @@ class State(TypedDict, total=False):
     checks_status: str
     checked_count: int
     skipped_count: int
+    requirements: dict
 
 
 def final_answer(text):
@@ -334,6 +347,7 @@ def public_task(row):
         if enriched is not None:
             task = dict(enriched)
     task['product'] = bool(task['product'])
+    task['requirements'] = json.loads(task['requirements'])
     task['output'] = json.dumps({key: final_answer(value) for key, value in
         json.loads(task['output']).items()}, ensure_ascii=False)
     return task
@@ -390,7 +404,7 @@ def build_graph():
                           'review': 'Luồng ba bước đã chạy. Nội dung là mô phỏng, chưa chứng minh nhiệm vụ thực tế hoàn thành.'}[key]
             else:
                 from openai import OpenAI
-                context = {k: state[k] for k in ('prompt', 'project_memory', 'plan', 'result', 'review', 'source_files', 'original_request') if k in state}
+                context = {k: state[k] for k in ('prompt', 'project_memory', 'plan', 'result', 'review', 'source_files', 'original_request', 'requirements') if k in state}
                 role_instruction = instruction
                 if key == 'review':
                     role_instruction += ' Chỉ xuất JSON hợp lệ: {"passed":true,"issues":[]} nếu đạt; nếu chưa đạt dùng passed=false và issues là danh sách lỗi cụ thể bằng tiếng Việt. Không tuyên bố đã thực thi hay kiểm thử mã. Không có văn bản ngoài JSON.'
@@ -417,10 +431,13 @@ def build_graph():
                     output = json.dumps({'passed':False,'issues':[str(error)]}, ensure_ascii=False)
                 else:
                     checks = check_files(files)
+                    issues = check_requirements(files,state.get('requirements',{})) if state['mode']!='demo' else []
+                    if issues:
+                        output = json.dumps({'passed':False,'issues':issues},ensure_ascii=False)
                     if checks['status'] == 'failed':
-                        issues = [item['path']+': '+item['message'] for item in checks['findings'] if item['status']=='failed']
+                        issues += [item['path']+': '+item['message'] for item in checks['findings'] if item['status']=='failed']
                         output = json.dumps({'passed':False,'issues':issues}, ensure_ascii=False)
-                    elif checks['status'] == 'unavailable':
+                    elif checks['status'] == 'unavailable' and not issues:
                         output = 'Bộ kiểm tra cú pháp không hoàn tất; cần người xem.'
             output = final_answer(output)
             if not output:
@@ -454,7 +471,7 @@ def run(task_id, prompt, mode):
         worker_update(task_id, status='running')
         with connect() as db:
             db.execute('INSERT INTO task_timing VALUES (?,?,NULL) ON CONFLICT(task_id) DO UPDATE SET started_at=excluded.started_at,finished_at=NULL', (task_id,utc_now()))
-        state = {'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id), 'product':is_product(task_id)}
+        state = {'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id), 'product':is_product(task_id), 'requirements':get_requirements(task_id)}
         source = task_source(task_id)
         if source:
             state.update(source_files=json.loads(source['files']), original_request=source['parent_prompt'])
@@ -542,6 +559,7 @@ def retry_task(task_id):
             db.execute("INSERT INTO task_memory SELECT ?, COALESCE((SELECT content FROM task_memory WHERE task_id=?),'')", (retry_id,task_id))
             db.execute('INSERT INTO task_products SELECT ?,enabled FROM task_products WHERE task_id=?', (retry_id,task_id))
             db.execute('INSERT INTO task_sources SELECT ?,parent_id,files,parent_prompt FROM task_sources WHERE task_id=?', (retry_id,task_id))
+            db.execute('INSERT INTO task_requirements SELECT ?,spec FROM task_requirements WHERE task_id=?',(retry_id,task_id))
         enqueue_task(retry_id,task['prompt'],task['mode'])
     return 202, {'id':retry_id, 'retry_of':task_id}
 
@@ -580,6 +598,8 @@ def export_task(task_id, section):
         lines += ['Lượt chạy lại từ nhiệm vụ: ' + task['retry_of'], '']
     if task['retry_id']:
         lines += ['Đã tạo lượt chạy lại: ' + task['retry_id'], '']
+    if task['requirements'].get('required_files'):
+        lines += ['Tệp thực tế bắt buộc: '+', '.join(task['requirements']['required_files']), '']
     if task['project_memory']:
         lines += ['## Bộ nhớ dự án khi giao việc', '', task['project_memory'], '']
     if task['mode'] == 'demo':
@@ -667,7 +687,12 @@ class Handler(BaseHTTPRequestHandler):
             status, product = product_files(parts[3])
             if status != 200:
                 return self.respond(status, product)
-            return self.respond(200, check_files(product['files']))
+            checks = check_files(product['files'])
+            issues = check_requirements(product['files'],get_requirements(parts[3])) if product['mode']!='demo' else []
+            checks['requirements'] = {'issues':issues,'status':'skipped_demo' if product['mode']=='demo' else 'failed' if issues else 'passed'}
+            if issues:
+                checks['status'] = 'failed'
+            return self.respond(200, checks)
         if self.path.startswith('/api/tasks/') and self.path.endswith('/diff'):
             parts = self.path.split('/')
             if len(parts) != 5:
@@ -789,6 +814,8 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length))
             prompt, mode = data.get('prompt'), data.get('mode', 'demo')
             product = data.get('product', False)
+            template = data.get('template','')
+            requirements = template_requirements(template)
             parent_id = data.get('parent_id')
             if parent_id is not None and (not isinstance(parent_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', parent_id)):
                 raise ValueError()
@@ -815,6 +842,10 @@ class Handler(BaseHTTPRequestHandler):
             if len(original) > 12000:
                 return self.respond(413, {'error':'Chuỗi yêu cầu quá dài; hãy tạo nhiệm vụ độc lập với yêu cầu được tóm tắt'})
             product = True
+            if not requirements:
+                requirements = get_requirements(parent_id)
+        if not product:
+            requirements = {}
         with ADMISSION_LOCK:
             if TASK_QUEUE.full():
                 return self.respond(429, {'error':'Hàng đợi đầy; hãy đợi hoặc hủy một việc đang chờ'})
@@ -823,6 +854,7 @@ class Handler(BaseHTTPRequestHandler):
                 db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', (task_id, prompt.strip(), mode, 'queued', 'Chờ', '{}', datetime.now(timezone.utc).isoformat()))
                 snapshot_memory(db, task_id)
                 db.execute('INSERT INTO task_products VALUES (?,?)', (task_id, int(product)))
+                db.execute('INSERT INTO task_requirements VALUES (?,?)',(task_id,json.dumps(requirements,ensure_ascii=False)))
                 if source is not None:
                     db.execute('INSERT INTO task_sources VALUES (?,?,?,?)', (task_id, parent_id, source, original))
             enqueue_task(task_id, prompt.strip(), mode)

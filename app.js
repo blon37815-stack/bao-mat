@@ -55,7 +55,7 @@ async function viewChecks(id){
  document.querySelector('#file-list').replaceChildren();document.querySelector('#download-file').hidden=true;
  const names={passed:'Đạt cú pháp ở các tệp được hỗ trợ',failed:'Phát hiện lỗi cú pháp',not_supported:'Chưa hỗ trợ kiểm tra các loại tệp này',unavailable:'Chưa kiểm tra được'};
  document.querySelector('#file-notice').textContent=(names[data.status]||data.status)+' · Đã kiểm tra: '+data.checked+' · Bỏ qua: '+data.skipped;
- document.querySelector('#file-content').textContent=data.message+'\n\n'+data.findings.map(item=>item.path+' · '+({passed:'Đạt',failed:'Lỗi',skipped:'Bỏ qua',unavailable:'Chưa kiểm tra được'})[item.status]+'\n'+item.message).join('\n\n');document.querySelector('#file-dialog').showModal();
+ document.querySelector('#file-content').textContent=data.message+(data.requirements?.issues?.length?'\n\nChưa đáp ứng yêu cầu:\n'+data.requirements.issues.join('\n'):'')+'\n\n'+data.findings.map(item=>item.path+' · '+({passed:'Đạt',failed:'Lỗi',skipped:'Bỏ qua',unavailable:'Chưa kiểm tra được'})[item.status]+'\n'+item.message).join('\n\n');document.querySelector('#file-dialog').showModal();
  }catch(e){document.querySelector('#error').textContent=e.message}
 }
 const templates={
@@ -66,8 +66,9 @@ const templates={
 };
 let parentTask=null;
 const DRAFT_KEY='bao-mat.draft.v1';
+function showRequirements(){const files={web:'index.html, style.css, app.js, README.md',python:'main.py, tests/test_main.py, README.md',data:'notes.json (3 ghi chú), config.json, README.md'};document.querySelector('#template-requirements').textContent=parentTask?'Bản chỉnh sửa giữ bộ tiêu chí của bản gốc.':files[document.querySelector('#task-template').value]?'Tệp thực tế bắt buộc: '+files[document.querySelector('#task-template').value]+'. Chỉ hướng dẫn trong README chưa được tính là hoàn thành.':''}
 function currentDraft(){return {prompt:document.querySelector('#prompt').value,mode:document.querySelector('#mode').value,product:document.querySelector('#product').checked,parent_id:parentTask,template:document.querySelector('#task-template').value}}
-function persistDraft(){try{localStorage.setItem(DRAFT_KEY,JSON.stringify(currentDraft()));document.querySelector('#draft-status').textContent='Đã lưu nháp trên trình duyệt này. Không nhập khóa API vào yêu cầu.'}catch{document.querySelector('#draft-status').textContent='Trình duyệt không cho lưu nháp; hãy giữ lại yêu cầu trước khi đóng trang.'}}
+function persistDraft(){showRequirements();try{localStorage.setItem(DRAFT_KEY,JSON.stringify(currentDraft()));document.querySelector('#draft-status').textContent='Đã lưu nháp trên trình duyệt này. Không nhập khóa API vào yêu cầu.'}catch{document.querySelector('#draft-status').textContent='Trình duyệt không cho lưu nháp; hãy giữ lại yêu cầu trước khi đóng trang.'}}
 function restoreDraft(){try{const saved=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');if(!saved){document.querySelector('#mode').value='ollama';return}if(typeof saved.prompt!=='string'||saved.prompt.length>4000||!['demo','ollama','ai'].includes(saved.mode))return;document.querySelector('#prompt').value=saved.prompt;document.querySelector('#mode').value=saved.mode;document.querySelector('#product').checked=saved.product===true;document.querySelector('#task-template').value=Object.hasOwn(templates,saved.template)?saved.template:'';if(typeof saved.parent_id==='string'&&/^[a-zA-Z0-9_-]{1,64}$/.test(saved.parent_id)){parentTask=saved.parent_id;document.querySelector('#revision-note').textContent='Tiếp tục soạn yêu cầu chỉnh sửa từ bản '+parentTask;document.querySelector('#revision-note').hidden=false;document.querySelector('#cancel-revision').hidden=false}document.querySelector('#draft-status').textContent='Đã khôi phục bản nháp và chế độ xử lý.'}catch{document.querySelector('#draft-status').textContent='Chưa đọc được bản nháp trên trình duyệt.'}}
 for(const id of ['prompt','mode','product'])document.querySelector('#'+id).addEventListener(id==='prompt'?'input':'change',persistDraft);
 document.querySelector('#clear-draft').onclick=()=>{if(document.querySelector('#prompt').value.trim()&&!confirm('Xóa yêu cầu đang soạn? Nhiệm vụ đã giao không bị xóa.'))return;document.querySelector('#prompt').value='';document.querySelector('#product').checked=false;document.querySelector('#task-template').value='';clearRevision()};
@@ -140,6 +141,7 @@ async function refresh(){const version=++refreshVersion;try{
   details.append(el('small','Mã nhiệm vụ: '+t.id));
   if(t.retry_of){const previous=el('button','Xem lượt trước');previous.onclick=()=>jumpTask(t.retry_of);details.append(el('p','Chạy lại từ: '+t.retry_of),previous)}
   if(t.retry_id){const next=el('button','Xem lượt chạy lại');next.onclick=()=>jumpTask(t.retry_id);details.append(next)}
+  if(t.requirements?.required_files?.length)details.append(el('h4','Tệp bắt buộc'),el('p',t.requirements.required_files.join(', ')));
   if(t.parent_id)details.append(el('p','Phiên bản sửa từ nhiệm vụ: '+t.parent_id));
   if(t.project_memory)details.append(el('h4','Bộ nhớ lúc giao việc'),el('pre',t.project_memory));
   const outputs=Object.entries(JSON.parse(t.output));
@@ -170,4 +172,4 @@ document.querySelector('#form').onsubmit=async event=>{
  }catch(error){document.querySelector('#error').textContent=error.message}
  finally{submitting=false;button.disabled=queueFull}
 };
-restoreDraft();refresh();setInterval(refresh,2000);
+restoreDraft();showRequirements();refresh();setInterval(refresh,2000);

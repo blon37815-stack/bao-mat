@@ -52,11 +52,13 @@ test('pause, submit demo, resume and inspect actual step history', async ({page}
 
 test('product preview, download, checks and revision draft survive reload', async ({page}) => {
   await page.locator('#task-template').selectOption('data');
+  await expect(page.locator('#template-requirements')).toContainText('notes.json');
   await page.locator('#mode').selectOption('demo');
   await page.locator('#prompt').fill('Sản phẩm mô phỏng kiểm thử giao diện');
   await page.locator('#submit').click();
   const card=page.locator('#tasks article').filter({hasText:'Sản phẩm mô phỏng kiểm thử giao diện'});
   await expect(card).toContainText('Hoàn thành mô phỏng');
+  await expect(card).toContainText('notes.json, config.json, README.md');
   await card.getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
   await expect(page.locator('#file-content')).toContainText('Sản phẩm mô phỏng');
   const downloaded=page.waitForEvent('download');
