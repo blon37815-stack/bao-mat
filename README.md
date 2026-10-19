@@ -363,3 +363,41 @@ hoàn thành không được chạy lại bằng nút này; dùng yêu cầu ch�
 nguyên vẹn. Quan hệ lượt chạy được sao lưu trong SQLite. Danh sách nhiệm vụ
 lấy bộ nhớ, sản phẩm và quan hệ phiên bản bằng JOIN trong một kết nối, không
 mở thêm kết nối theo từng nhiệm vụ trên trang.
+
+## Đợt nâng cấp dùng hằng ngày
+
+Chi tiết ở [RELEASE_NOTES.md](RELEASE_NOTES.md). Giao diện được tách thành
+index.html, app.js và styles.css; cả ba đều cần khi chạy app.
+
+- **Tạm dừng hàng đợi / Tiếp tục hàng đợi:** chỉ tác động tới việc chưa được
+  worker lấy; việc đã bắt đầu tiếp tục chạy. Tạm dừng không phải hủy hay lưu
+  checkpoint giữa bước, không tự giữ sau khi tắt app.
+- **Lịch sử từng bước:** chọn trên thẻ nhiệm vụ để xem các kết quả từng lượt
+  và thời gian, kể cả bản kết quả trước khi sửa. Nhiệm vụ từ bản cũ có thể
+  chưa có lịch sử, kết quả cuối vẫn được giữ.
+- **Bản nháp:** tự lưu trên trình duyệt này, gồm yêu cầu, chế độ và bản gốc
+  được chọn. Lỗi giao việc không xóa nháp. Xóa bằng nút Xóa bản nháp; dữ liệu
+  đã giao không bị xóa. Nháp không nằm trong SQLite hay bản sao lưu dữ liệu.
+
+API thêm: `POST /api/queue` với JSON `{"paused":true|false}`, yêu cầu token
+phiên; `GET /api/tasks/{id}/history` trả steps và timing. Danh sách có thêm
+started_at, finished_at và completed_steps. Các bảng mới được tạo tự động,
+không cần reset dữ liệu.
+
+### Kiểm thử giao diện cho người phát triển
+
+Chạy unittest như trước. Để kiểm tra Chromium, cài Node.js 22+ và chạy:
+
+```sh
+npm ci --prefix tests/ui
+cd tests/ui
+npx playwright install chromium
+npm test
+```
+
+Config mặc định dùng Python trong .venv. Có thể đặt BAO_TEST_PYTHON thành
+đường dẫn Python đã cài phụ thuộc. Nếu có sẵn Chromium, đặt
+PLAYWRIGHT_EXECUTABLE_PATH thành đường dẫn trình duyệt để không tải lại.
+Máy chủ kiểm thử dùng SQLite tạm ở cổng 8989, không dùng dữ liệu app của bạn.
+Dùng chế độ mô phỏng để kiểm tra giao việc, lịch sử, tải tệp và các thao tác
+trình duyệt; các kiểm thử mô hình thật vẫn là kiểm tra riêng.

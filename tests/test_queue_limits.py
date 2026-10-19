@@ -97,3 +97,48 @@ class QueueLimitTest(unittest.TestCase):
             self.assertEqual(self.queue.qsize(),1)
         finally:
             server.shutdown();server.server_close();helper.join()
+
+    def test_pause_does_not_interrupt_active_work_and_blocks_next_claim(self):
+        from queue import Empty
+        work=app.TaskQueue(maxsize=2)
+        work.put_nowait(('first','one','demo'))
+        work.put_nowait(('second','two','demo'))
+        active,release,next_claimed=threading.Event(),threading.Event(),threading.Event()
+        calls=[]
+        def consume():
+            first=work.get(timeout=2);calls.append(first[0]);active.set()
+            release.wait(2);work.task_done()
+            second=work.get(timeout=2);calls.append(second[0]);next_claimed.set();work.task_done()
+        helper=threading.Thread(target=consume)
+        helper.start()
+        try:
+            self.assertTrue(active.wait(1))
+            work.set_paused(True);release.set()
+            self.assertFalse(next_claimed.wait(.1))
+            self.assertEqual(work.stats()['waiting'],1)
+            with self.assertRaises(Empty):
+                work.get_nowait()
+            work.set_paused(False)
+            self.assertTrue(next_claimed.wait(1))
+        finally:
+            release.set();work.set_paused(False);helper.join(3)
+        self.assertEqual(calls,['first','second'])
+
+    def test_queue_control_requires_token_and_strict_boolean(self):
+        server=app.ThreadingHTTPServer(('127.0.0.1',0),app.Handler)
+        helper=threading.Thread(target=server.serve_forever,daemon=True);helper.start()
+        base='http://127.0.0.1:'+str(server.server_port)
+        try:
+            for value,token,expected in [(True,False,403),('true',True,400),(True,True,200),(False,True,200)]:
+                headers={'Content-Type':'application/json'}
+                if token:headers['X-CSRF-Token']=app.CSRF_TOKEN
+                request=urllib.request.Request(base+'/api/queue',data=json.dumps({'paused':value}).encode(),headers=headers)
+                try:
+                    with urllib.request.urlopen(request) as response:
+                        code=response.status
+                        self.assertEqual(json.load(response)['paused'],value)
+                except urllib.error.HTTPError as error:
+                    code=error.code
+                self.assertEqual(code,expected)
+        finally:
+            server.shutdown();server.server_close();helper.join()

@@ -1,4 +1,4 @@
-name: Python tests
+name: Application checks
 on:
   push:
   pull_request:
@@ -24,3 +24,25 @@ jobs:
         run: python -m pip check
       - name: Run tests
         run: python -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tests/ui/package-lock.json
+      - name: Install browser test dependencies
+        run: npm ci --prefix tests/ui
+      - name: Install Chromium
+        working-directory: tests/ui
+        run: npx playwright install --with-deps chromium
+      - name: Exercise dashboard in Chromium
+        run: npm test --prefix tests/ui
+        env:
+          BAO_TEST_PYTHON: python
+      - name: Save browser traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-traces-${{ matrix.os }}
+          path: tests/ui/test-results
+          if-no-files-found: ignore
+          retention-days: 7

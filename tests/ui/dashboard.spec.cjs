@@ -1,0 +1,96 @@
+const {test, expect} = require('@playwright/test');
+
+async function post(page, path, payload) {
+  const {token} = await (await page.request.get('/api/session')).json();
+  const response = await page.request.post(path, {data: payload, headers: {'X-CSRF-Token':token}});
+  expect(response.ok()).toBeTruthy();
+  return response.json();
+}
+
+test.beforeEach(async ({page}) => {
+  page.on('dialog', dialog => dialog.accept());
+  await post(page, '/api/queue', {paused:false});
+  await page.goto('/');
+  await expect(page.locator('#toggle-queue')).toBeEnabled();
+});
+
+test('restores a draft and provider after reload; failed submit keeps draft', async ({page}) => {
+  await page.locator('#mode').selectOption('ollama');
+  await page.locator('#product').check();
+  await page.locator('#prompt').fill('Yêu cầu tiếng Việt chưa giao');
+  await page.reload();
+  await expect(page.locator('#prompt')).toHaveValue('Yêu cầu tiếng Việt chưa giao');
+  await expect(page.locator('#mode')).toHaveValue('ollama');
+  await expect(page.locator('#product')).toBeChecked();
+  await page.route('**/api/tasks', route => route.request().method()==='POST' ? route.fulfill({status:429,contentType:'application/json',body:JSON.stringify({error:'Hàng đợi đầy thử nghiệm'})}) : route.continue());
+  await page.locator('#submit').click();
+  await expect(page.locator('#error')).toContainText('Hàng đợi đầy');
+  await page.reload();
+  await expect(page.locator('#prompt')).toHaveValue('Yêu cầu tiếng Việt chưa giao');
+});
+
+test('pause, submit demo, resume and inspect actual step history', async ({page}) => {
+  await page.locator('#toggle-queue').click();
+  await expect(page.locator('#queue-state')).toContainText('Đang tạm dừng');
+  await page.locator('#mode').selectOption('demo');
+  await page.locator('#prompt').fill('Kiểm tra tạm dừng bằng trình duyệt');
+  await page.locator('#submit').click();
+  const card = page.locator('#tasks article').filter({hasText:'Kiểm tra tạm dừng bằng trình duyệt'});
+  await expect(card).toContainText('Chờ');
+  await page.waitForTimeout(500);
+  await expect(card).not.toContainText('Hoàn thành mô phỏng');
+  await page.locator('#toggle-queue').click();
+  await expect(card).toContainText('Hoàn thành mô phỏng');
+  await expect(card.locator('[data-duration]')).toContainText('Đã xong 3 bước');
+  await card.getByRole('button',{name:'Lịch sử từng bước'}).click();
+  await expect(page.locator('#file-dialog')).toBeVisible();
+  await expect(page.locator('#dialog-title')).toHaveText('Lịch sử từng bước');
+  await expect(page.locator('#file-list button')).toHaveCount(3);
+  await page.locator('#file-list button').filter({hasText:'Điều phối'}).click();
+  await expect(page.locator('#file-content')).toContainText('Kiểm tra tạm dừng bằng trình duyệt');
+});
+
+test('product preview, download, checks and revision draft survive reload', async ({page}) => {
+  await page.locator('#task-template').selectOption('data');
+  await page.locator('#mode').selectOption('demo');
+  await page.locator('#prompt').fill('Sản phẩm mô phỏng kiểm thử giao diện');
+  await page.locator('#submit').click();
+  const card=page.locator('#tasks article').filter({hasText:'Sản phẩm mô phỏng kiểm thử giao diện'});
+  await expect(card).toContainText('Hoàn thành mô phỏng');
+  await card.getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
+  await expect(page.locator('#file-content')).toContainText('Sản phẩm mô phỏng');
+  const downloaded=page.waitForEvent('download');
+  await page.locator('#download-file').click();
+  expect((await downloaded).suggestedFilename()).toBe('README.md');
+  await page.locator('#close-files').click();
+  await card.getByRole('button',{name:'Kiểm tra cú pháp'}).click();
+  await expect(page.locator('#file-notice')).toContainText('Chưa hỗ trợ');
+  await page.locator('#close-files').click();
+  await card.getByRole('button',{name:'Yêu cầu chỉnh sửa'}).click();
+  await page.locator('#prompt').fill('Thêm hướng dẫn sử dụng tiếng Việt');
+  await page.reload();
+  await expect(page.locator('#revision-note')).toBeVisible();
+  await expect(page.locator('#prompt')).toHaveValue('Thêm hướng dẫn sử dụng tiếng Việt');
+});
+
+test('polling preserves expanded result and does not recreate unchanged cards', async ({page}) => {
+  const result=await post(page,'/api/tasks',{prompt:'Kết quả giữ nguyên khi làm mới',mode:'demo'});
+  await page.locator('#search').fill(result.id);
+  const card=page.locator('#tasks article').filter({hasText:'Kết quả giữ nguyên khi làm mới'});
+  await expect(card).toContainText('Hoàn thành mô phỏng');
+  await card.locator('summary').click();
+  await card.evaluate(node=>node.dataset.testMarker='original');
+  await page.waitForTimeout(2300);
+  await expect(card).toHaveAttribute('data-test-marker','original');
+  await expect(card.locator('details')).toHaveAttribute('open','');
+});
+
+test('desktop and mobile layouts have no horizontal overflow or script errors', async ({page}) => {
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.reload();
+  await expect(page.locator('#submit')).toBeEnabled();
+  await page.setViewportSize({width:390,height:844});
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth);
+  expect(overflow).toBe(false);
+  expect(errors).toEqual([]);
+});

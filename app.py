@@ -10,6 +10,7 @@ import uuid
 import urllib.request
 import urllib.parse
 import difflib
+import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -20,6 +21,35 @@ from ollama_transport import request_completion, InferenceCancelled as TaskCance
 from langgraph.graph import StateGraph, START, END
 
 class TaskQueue(queue.Queue):
+    def __init__(self, maxsize=0):
+        super().__init__(maxsize)
+        self.paused = False
+
+    def get(self, block=True, timeout=None):
+        with self.not_empty:
+            if timeout is not None and timeout < 0:
+                raise ValueError('timeout must be non-negative')
+            deadline = time.monotonic()+timeout if timeout is not None else None
+            while not self._qsize() or self.paused:
+                if not block:
+                    raise queue.Empty
+                remaining = deadline-time.monotonic() if deadline is not None else None
+                if remaining is not None and remaining <= 0:
+                    raise queue.Empty
+                self.not_empty.wait(remaining)
+            item = self._get()
+            self.not_full.notify()
+            return item
+
+    def set_paused(self, paused):
+        with self.not_empty:
+            self.paused = paused
+            self.not_empty.notify_all()
+
+    def stats(self):
+        with self.mutex:
+            return {'waiting':self._qsize(), 'capacity':self.maxsize, 'paused':self.paused}
+
     def discard(self, task_id):
         """Remove only waiting entries, without touching an active worker."""
         with self.mutex:
@@ -49,9 +79,17 @@ ROLES = [('plan', 'Điều phối', 'Chia yêu cầu thành kế hoạch cụ th
          ('review', 'Kiểm tra', 'Đánh giá kết quả theo yêu cầu và kế hoạch. Nêu thiếu sót, điều chưa được xác minh.')]
 
 
+class DatabaseConnection(sqlite3.Connection):
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
 def connect():
     DB.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(DB, timeout=30)
+    db = sqlite3.connect(DB, timeout=30, factory=DatabaseConnection)
     db.execute('PRAGMA busy_timeout=30000')
     db.execute('PRAGMA journal_mode=WAL')
     db.row_factory = sqlite3.Row
@@ -61,6 +99,9 @@ def connect():
     db.execute('CREATE TABLE IF NOT EXISTS task_products (task_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_sources (task_id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, files TEXT NOT NULL, parent_prompt TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_retries (parent_id TEXT PRIMARY KEY, child_id TEXT NOT NULL UNIQUE)')
+    db.execute('CREATE TABLE IF NOT EXISTS task_timing (task_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT)')
+    db.execute("CREATE TABLE IF NOT EXISTS task_steps (id INTEGER PRIMARY KEY, task_id TEXT NOT NULL, role TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL, output TEXT NOT NULL DEFAULT '')")
+    db.execute('CREATE INDEX IF NOT EXISTS task_steps_by_task ON task_steps(task_id,id)')
     return db
 
 
@@ -138,13 +179,16 @@ def product_diff(task_id):
 TASK_STATUSES = ('queued','running','completed','needs_review','failed','interrupted','approved','cancelled')
 TASK_SELECT = '''SELECT t.*, COALESCE(p.enabled,0) AS product,
     COALESCE(m.content,'') AS project_memory, s.parent_id,
-    next.child_id AS retry_id, prev.parent_id AS retry_of
+    next.child_id AS retry_id, prev.parent_id AS retry_of,
+    timing.started_at, timing.finished_at,
+    (SELECT COUNT(*) FROM task_steps step WHERE step.task_id=t.id AND step.status='completed') AS completed_steps
     FROM tasks t
     LEFT JOIN task_products p ON p.task_id=t.id
     LEFT JOIN task_memory m ON m.task_id=t.id
     LEFT JOIN task_sources s ON s.task_id=t.id
     LEFT JOIN task_retries next ON next.parent_id=t.id
-    LEFT JOIN task_retries prev ON prev.child_id=t.id'''
+    LEFT JOIN task_retries prev ON prev.child_id=t.id
+    LEFT JOIN task_timing timing ON timing.task_id=t.id'''
 
 
 def list_tasks(query='', status='all', offset=0):
@@ -177,6 +221,47 @@ def worker_update(task_id, **fields):
             + " WHERE id=? AND status!='cancelled'", [*fields.values(), task_id]).rowcount
     if not changed:
         raise TaskCancelled()
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def tracked_step(step, role_key):
+    def invoke(state):
+        attempt = state.get('attempts',0)+(1 if role_key=='result' else 0)
+        with connect() as db:
+            row = db.execute('SELECT status FROM tasks WHERE id=?',(state['id'],)).fetchone()
+            if row is None or row['status']=='cancelled':
+                raise TaskCancelled()
+            step_id = db.execute('INSERT INTO task_steps(task_id,role,attempt,started_at,status) VALUES (?,?,?,?,?)',
+                (state['id'],role_key,max(1,attempt),utc_now(),'running')).lastrowid
+        status, output = 'failed', ''
+        try:
+            result = step(state)
+            status, output = 'completed', result[role_key]
+            return result
+        except TaskCancelled:
+            status = 'cancelled'
+            raise
+        finally:
+            with connect() as db:
+                db.execute('UPDATE task_steps SET finished_at=?,status=?,output=? WHERE id=? AND finished_at IS NULL',
+                    (utc_now(),status,output,step_id))
+    return invoke
+
+
+def task_history(task_id):
+    with connect() as db:
+        task = db.execute('SELECT id FROM tasks WHERE id=?',(task_id,)).fetchone()
+        if task is None:
+            return 404, {'error':'Không tìm thấy nhiệm vụ'}
+        rows = db.execute('SELECT * FROM task_steps WHERE task_id=? ORDER BY id',(task_id,)).fetchall()
+        timing = db.execute('SELECT started_at,finished_at FROM task_timing WHERE task_id=?',(task_id,)).fetchone()
+    steps = [dict(row) for row in rows]
+    for item in steps:
+        item['output'] = final_answer(item['output'])
+    return 200, {'steps':steps, 'timing':dict(timing) if timing else None}
 
 
 def task_action(task_id, action):
@@ -352,7 +437,7 @@ def build_graph():
                     if changes['verdict'] == 'passed' and checks['status'] == 'not_supported':
                         changes['verdict'] = 'manual'
             return changes
-        graph.add_node(key, step)
+        graph.add_node(key, tracked_step(step,key))
     graph.add_edge(START, 'plan')
     graph.add_edge('plan', 'result')
     graph.add_edge('result', 'review')
@@ -367,6 +452,8 @@ def run(task_id, prompt, mode):
     CALL_STATE.cancel_event = event
     try:
         worker_update(task_id, status='running')
+        with connect() as db:
+            db.execute('INSERT INTO task_timing VALUES (?,?,NULL) ON CONFLICT(task_id) DO UPDATE SET started_at=excluded.started_at,finished_at=NULL', (task_id,utc_now()))
         state = {'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id), 'product':is_product(task_id)}
         source = task_source(task_id)
         if source:
@@ -396,10 +483,14 @@ def run(task_id, prompt, mode):
         except TaskCancelled:
             pass
     finally:
-        with ACTIVE_LOCK:
-            if ACTIVE_CANCEL.get(task_id) is event:
-                ACTIVE_CANCEL.pop(task_id, None)
-        del CALL_STATE.cancel_event
+        try:
+            with connect() as db:
+                db.execute('UPDATE task_timing SET finished_at=? WHERE task_id=? AND finished_at IS NULL',(utc_now(),task_id))
+        finally:
+            with ACTIVE_LOCK:
+                if ACTIVE_CANCEL.get(task_id) is event:
+                    ACTIVE_CANCEL.pop(task_id, None)
+            del CALL_STATE.cancel_event
 
 
 def work_loop():
@@ -423,6 +514,8 @@ def enqueue_task(task_id, prompt, mode):
 
 def recover():
     with connect() as db:
+        db.execute("UPDATE task_steps SET status='interrupted',finished_at=? WHERE status='running'",(utc_now(),))
+        db.execute('UPDATE task_timing SET finished_at=? WHERE finished_at IS NULL',(utc_now(),))
         db.execute("UPDATE tasks SET status='interrupted', stage='Tiến trình bị dừng; có thể chạy lại nhiệm vụ' WHERE status IN ('queued','running')")
 
 
@@ -462,7 +555,7 @@ def team_status():
             counts[role] = counts.get(role, 0) + row['count']
         totals = dict(db.execute('SELECT status, COUNT(*) FROM tasks GROUP BY status').fetchall())
     return {'bots': [{'name': role, 'active': counts.get(role, 0)} for _, role, _ in ROLES], 'totals': totals,
-            'queue':{'waiting':TASK_QUEUE.qsize(),'capacity':TASK_QUEUE.maxsize}}
+            'queue':TASK_QUEUE.stats()}
 
 
 def export_task(task_id, section):
@@ -550,10 +643,19 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, {'token':CSRF_TOKEN})
         if self.path == '/':
             return self.respond(200, (ROOT/'index.html').read_bytes(), 'text/html; charset=utf-8')
+        if self.path in ('/app.js','/styles.css'):
+            content_type = 'text/javascript' if self.path=='/app.js' else 'text/css'
+            return self.respond(200,(ROOT/self.path[1:]).read_bytes(),content_type+'; charset=utf-8')
         if self.path == '/api/memory':
             return self.respond(200, {'content':get_memory()})
         if self.path == '/api/team':
             return self.respond(200, team_status())
+        if self.path.startswith('/api/tasks/') and self.path.endswith('/history'):
+            parts = self.path.split('/')
+            if len(parts) != 5:
+                return self.respond(404, {'error':'Không tìm thấy'})
+            status, history = task_history(parts[3])
+            return self.respond(status, history)
         if self.path == '/api/health':
             return self.respond(200, {'ollama':ollama_health(os.environ.get('OLLAMA_BASE_URL','http://127.0.0.1:11434'),
                                    os.environ.get('OLLAMA_MODEL','qwen3:4b')),
@@ -631,6 +733,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed_request(writing=True):
             return
+        if self.path == '/api/queue':
+            try:
+                length = int(self.headers.get('Content-Length','0'))
+                if not 0 < length <= 200:
+                    raise ValueError()
+                data = json.loads(self.rfile.read(length))
+                paused = data.get('paused')
+                if type(paused) is not bool:
+                    raise ValueError()
+            except (ValueError,TypeError,AttributeError):
+                return self.respond(400, {'error':'paused phải là true hoặc false'})
+            TASK_QUEUE.set_paused(paused)
+            return self.respond(200, TASK_QUEUE.stats())
         if self.path == '/api/backup':
             source = connect()
             try:
