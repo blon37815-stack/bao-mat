@@ -1,4 +1,29 @@
-# Đợt giao diện không gian làm việc
+# Đợt tách công việc và xóa từng việc
+
+- Công việc có mục/biểu tượng riêng trên thanh bên, không đặt danh sách
+  hoặc ô thống kê trong khu Trao đổi. Giao việc mới mở kết quả đang xử lý.
+- Ô thống kê mở bộ lọc; biểu tượng bot mở thiết lập; biểu tượng mở rộng và
+  đóng khung kết quả có thao tác thực. Không hiện nút đóng/mở rộng khi trống.
+- Danh sách 20 dòng, chỉ tải khi mở, không kèm kết quả dài/bộ nhớ/hướng dẫn
+  bot. Giữ dòng không đổi khi lọc/làm mới. Số đo/bot không polling liên tục
+  khi khu tương ứng bị ẩn; chỉ tự tải kết quả của việc đang xem còn chạy.
+- Nút Xóa cạnh phần tải ở dòng công việc và khung kết quả. Có xem trước,
+  xác nhận, bản sao SQLite lưu trước xóa và kiểm tra dữ liệu lại trong
+  transaction. Chặn việc đang chạy/chờ hoặc luồng hủy chưa dừng hẳn.
+- Xóa đúng một việc và dữ liệu riêng, giữ các phiên bản khác, tài liệu và
+  thiết lập chung. Bản sửa vẫn có diff bằng nguồn đã chụp; liên kết gốc đã
+  xóa được ghi rõ. Có thể tạo lượt chạy lại mới nếu lượt cũ đã xóa.
+- Đóng/xóa kết quả đang xem giải phóng nội dung và iframe. Xóa không tự
+  thu nhỏ tệp SQLite hoặc xóa bản sao lưu; các bản sao vẫn chiếm dung lượng.
+
+Kiểm chứng cục bộ: 117 unittest Python và 16 luồng Chromium trên Linux,
+provider giả lập, LangGraph thật. Kiểm tra lỗi sao lưu/fsync, dữ liệu đổi
+trong lúc sao lưu, thời hạn/token, xóa việc liên kết, khôi phục ZIP, giữ
+thư viện, phân trang nhẹ, bấm trực tiếp biểu tượng và bố cục điện thoại.
+Chưa kiểm chứng Ollama thật trên Windows hoặc CI remote xanh; chưa gộp PR.
+Cập nhật bằng cap-nhat.bat rồi Ctrl+F5. Không thêm phụ thuộc chạy app.
+
+# Đợt giao diện không gian làm việc trước đó
 
 - Thay trang dài bằng thanh bên với 5 khu: Làm việc, Đội bot, Tài liệu,
   Tài nguyên, Thiết lập. Tổng quan nhiệm vụ và hàng đợi lấy số liệu thật.

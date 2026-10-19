@@ -25,6 +25,7 @@ from expert_team import ECC_COMMIT, EXPERTS, catalog, resolve_expert, supervisor
 from resource_monitor import MONITOR
 import workspace_data
 from web_preview import preview_html
+from task_deletion import deletion_plan, apply_deletion
 from data_cleanup import cleanup_plan, apply_cleanup
 from langgraph.graph import StateGraph, START, END
 
@@ -81,6 +82,7 @@ ACTIVE_CANCEL = {}
 CALL_STATE = threading.local()
 CLEANUP_LOCK = threading.Lock()
 CLEANUP_PREVIEWS = {}
+TASK_DELETE_PREVIEWS = {}
 CSRF_TOKEN = secrets.token_urlsafe(32)
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get('BOT_DB', str(ROOT / 'data' / 'tasks.sqlite3')))
@@ -117,6 +119,8 @@ def connect():
     db.execute('CREATE TABLE IF NOT EXISTS task_timing (task_id TEXT PRIMARY KEY, started_at TEXT NOT NULL, finished_at TEXT)')
     db.execute("CREATE TABLE IF NOT EXISTS task_steps (id INTEGER PRIMARY KEY, task_id TEXT NOT NULL, role TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL, output TEXT NOT NULL DEFAULT '')")
     db.execute('CREATE INDEX IF NOT EXISTS task_steps_by_task ON task_steps(task_id,id)')
+    db.execute('CREATE INDEX IF NOT EXISTS tasks_by_created ON tasks(created DESC,id DESC)')
+    db.execute('CREATE TABLE IF NOT EXISTS deleted_tasks (id TEXT PRIMARY KEY, prompt TEXT NOT NULL, deleted_at TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_requirements (task_id TEXT PRIMARY KEY, spec TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_step_cleanup (step_id INTEGER PRIMARY KEY, cleared_at TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_generation (task_id TEXT PRIMARY KEY, method TEXT NOT NULL, calls INTEGER NOT NULL DEFAULT 0)')
@@ -290,6 +294,9 @@ TASK_SELECT = '''SELECT t.*, COALESCE(p.enabled,0) AS product,
     COALESCE(assignment.expert,'none') AS expert, COALESCE(assignment.call_limit,0) AS call_limit,
     COALESCE(assignment.source_commit,'') AS expert_source_commit,
     COALESCE(preferences.spec,'{}') AS bot_preferences,
+    EXISTS(SELECT 1 FROM deleted_tasks d WHERE d.id=s.parent_id) AS parent_deleted,
+    EXISTS(SELECT 1 FROM deleted_tasks d WHERE d.id=next.child_id) AS retry_deleted,
+    EXISTS(SELECT 1 FROM deleted_tasks d WHERE d.id=prev.parent_id) AS retry_of_deleted,
     (SELECT json_group_array(json_object('id',document_id,'title',title)) FROM task_documents WHERE task_id=t.id) AS documents,
     (SELECT COUNT(*) FROM task_steps step WHERE step.task_id=t.id AND step.status='completed') AS completed_steps
     FROM tasks t
@@ -304,8 +311,24 @@ TASK_SELECT = '''SELECT t.*, COALESCE(p.enabled,0) AS product,
     LEFT JOIN task_bot_preferences preferences ON preferences.task_id=t.id
     LEFT JOIN task_assignment assignment ON assignment.task_id=t.id'''
 
+# Reuse the indexed joins, without selecting result/source/memory bodies for the list.
+TASK_SUMMARY_SELECT = '''SELECT t.id,t.prompt,t.mode,t.status,t.stage,t.created,
+    COALESCE(p.enabled,0) AS product, s.parent_id, next.child_id AS retry_id, prev.parent_id AS retry_of,
+    timing.started_at,timing.finished_at,COALESCE(requirements.spec,'{}') AS requirements,
+    COALESCE(generation.method,'legacy') AS generation_method,COALESCE(generation.calls,0) AS model_calls,
+    COALESCE(assignment.expert,'none') AS expert,COALESCE(assignment.call_limit,0) AS call_limit,
+    COALESCE(json_extract(preferences.spec,'$.' || assignment.expert || '.name'),'') AS expert_name,
+    EXISTS(SELECT 1 FROM deleted_tasks d WHERE d.id=s.parent_id) AS parent_deleted,
+    EXISTS(SELECT 1 FROM deleted_tasks d WHERE d.id=next.child_id) AS retry_deleted,
+    EXISTS(SELECT 1 FROM deleted_tasks d WHERE d.id=prev.parent_id) AS retry_of_deleted,
+    (SELECT json_group_array(json_object('id',document_id,'title',title)) FROM task_documents WHERE task_id=t.id) AS documents,
+    (SELECT COUNT(*) FROM task_steps step WHERE step.task_id=t.id AND step.status='completed') AS completed_steps,
+    EXISTS(SELECT 1 FROM task_steps step WHERE step.task_id=t.id AND step.role='result' AND step.status='completed') AS has_result,
+    length(t.output)>2 AS has_output
+    '''+TASK_SELECT[TASK_SELECT.index('    FROM tasks t'):]
 
-def list_tasks(query='', status='all', offset=0):
+
+def list_tasks(query='', status='all', offset=0, compact=False):
     if len(query) > 200 or status not in ('all', *TASK_STATUSES) or not 0 <= offset <= 1_000_000:
         raise ValueError('Bộ lọc không hợp lệ')
     clauses, params = [], []
@@ -319,8 +342,16 @@ def list_tasks(query='', status='all', offset=0):
     with connect() as db:
         db.create_function('casefold', 1, lambda text: (text or '').casefold())
         total = db.execute('SELECT COUNT(*) FROM tasks t'+where, params).fetchone()[0]
-        rows = db.execute(TASK_SELECT+where+' ORDER BY t.created DESC, t.id DESC LIMIT 50 OFFSET ?', [*params, offset]).fetchall()
-    return {'tasks':[public_task(row) for row in rows], 'total':total, 'offset':offset, 'limit':50,
+        limit=20 if compact else 50
+        rows = db.execute((TASK_SUMMARY_SELECT if compact else TASK_SELECT)+where+' ORDER BY t.created DESC, t.id DESC LIMIT ? OFFSET ?', [*params, limit, offset]).fetchall()
+    tasks=[]
+    for row in rows:
+        if compact:
+            task=dict(row);task['product']=bool(task['product'])
+            task['requirements']=json.loads(task['requirements']);task['documents']=json.loads(task['documents'] or '[]')
+        else:task=public_task(row)
+        tasks.append(task)
+    return {'tasks':tasks, 'total':total, 'offset':offset, 'limit':limit,
             'ai_available':bool(os.environ.get('OPENAI_API_KEY')), 'ollama_model':os.environ.get('OLLAMA_MODEL','qwen3:4b')}
 
 
@@ -400,6 +431,52 @@ def perform_cleanup(token, confirmation):
             CLEANUP_PREVIEWS.pop(token,None)
     return 200, {'items':result['items'],'tasks':result['tasks'],'backup_file':filename,
                  'message':'Đã dọn. SQLite có thể giữ kích thước tệp để tái sử dụng, chưa thu nhỏ tệp ngay.'}
+
+
+def preview_task_delete(task_id):
+    with ACTIVE_LOCK:
+        if task_id in ACTIVE_CANCEL:return 409,{'error':'Luồng xử lý chưa dừng hẳn; đợi một chút rồi xóa'}
+    try:
+        with connect() as db:plan=deletion_plan(db,task_id)
+    except LookupError as error:return 404,{'error':str(error)}
+    except ValueError as error:return 409,{'error':str(error)}
+    token=secrets.token_urlsafe(24)
+    with CLEANUP_LOCK:
+        now=time.monotonic()
+        for old in list(TASK_DELETE_PREVIEWS):
+            if now-TASK_DELETE_PREVIEWS[old]['created']>300:TASK_DELETE_PREVIEWS.pop(old,None)
+        if len(TASK_DELETE_PREVIEWS)>=20:TASK_DELETE_PREVIEWS.pop(next(iter(TASK_DELETE_PREVIEWS)))
+        TASK_DELETE_PREVIEWS[token]={'created':now,'plan':plan}
+    return 200,{key:value for key,value in plan.items() if key!='fingerprint'}|{'token':token}
+
+
+def delete_task(task_id, token, confirmation):
+    if not isinstance(token,str) or confirmation!=task_id:return 400,{'error':'Cần xem trước và xác nhận đúng công việc'}
+    with CLEANUP_LOCK:preview=TASK_DELETE_PREVIEWS.get(token)
+    if not preview or preview['plan']['id']!=task_id or time.monotonic()-preview['created']>300:
+        return 409,{'error':'Bản xem trước hết hạn; hãy mở lại nút Xóa'}
+    filename=None;persisted=False
+    with ADMISSION_LOCK:
+        with ACTIVE_LOCK:
+            if task_id in ACTIVE_CANCEL:return 409,{'error':'Luồng xử lý chưa dừng hẳn; chưa xóa công việc'}
+        try:
+            with connect() as db:
+                current=deletion_plan(db,task_id)
+                if current['fingerprint']!=preview['plan']['fingerprint']:raise ValueError('Công việc đã thay đổi; hãy xem trước lại')
+                payload=backup_database(db)
+            directory=DB.parent/'backups';directory.mkdir(parents=True,exist_ok=True)
+            filename='task-delete-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:12]+'.zip'
+            with (directory/filename).open('xb') as saved:
+                saved.write(payload);saved.flush();os.fsync(saved.fileno())
+            persisted=True
+            with connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                apply_deletion(db,preview['plan'],utc_now())
+        except LookupError as error:return 404,{'error':str(error),'backup_file':filename}
+        except ValueError as error:return 409,{'error':str(error),'backup_file':filename}
+        except (OSError,sqlite3.Error):return 500,{'error':'Chưa lưu được bản sao hoặc xóa dữ liệu; công việc được giữ','backup_file':filename if persisted else None}
+        with CLEANUP_LOCK:TASK_DELETE_PREVIEWS.pop(token,None)
+    return 200,{'id':task_id,'backup_file':filename,'message':'Đã xóa công việc. Các phiên bản khác và tài liệu chung được giữ.'}
 
 
 def tracked_step(step, role_key):
@@ -826,8 +903,9 @@ def retry_task(task_id, call_limit=None):
             if task['status'] not in ('failed','interrupted','cancelled','needs_review'):
                 return 409, {'error':'Nhiệm vụ chưa ở trạng thái cho phép chạy lại'}
             previous = db.execute('SELECT child_id FROM task_retries WHERE parent_id=?', (task_id,)).fetchone()
-            if previous:
+            if previous and db.execute('SELECT 1 FROM tasks WHERE id=?',(previous['child_id'],)).fetchone():
                 return 409, {'error':'Đã tạo lượt chạy lại cho nhiệm vụ này', 'id':previous['child_id']}
+            if previous:db.execute('DELETE FROM task_retries WHERE parent_id=?',(task_id,))
             if task['mode']=='ai' and not os.environ.get('OPENAI_API_KEY'):
                 return 400, {'error':'Chưa cấu hình OPENAI_API_KEY'}
             if TASK_QUEUE.full():
@@ -858,7 +936,8 @@ def team_status():
             counts[role] = counts.get(role, 0) + row['count']
         totals = dict(db.execute('SELECT status, COUNT(*) FROM tasks GROUP BY status').fetchall())
     return {'bots': [{'name': role, 'active': counts.get(role, 0)} for _, role, _ in ROLES], 'totals': totals,
-            'queue':TASK_QUEUE.stats(),'supervisors_active':counts.get('Chuyên gia ECC',0)}
+            'queue':TASK_QUEUE.stats(),'supervisors_active':counts.get('Chuyên gia ECC',0),
+            'ai_available':bool(os.environ.get('OPENAI_API_KEY'))}
 
 
 def export_task(task_id, section):
@@ -957,7 +1036,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed_url.path == '/api/tasks':
             try:
                 query = urllib.parse.parse_qs(parsed_url.query)
-                result = list_tasks(query.get('q',[''])[0], query.get('status',['all'])[0], int(query.get('offset',['0'])[0]))
+                compact=query.get('compact',['0'])[0]
+                if compact not in ('0','1'):raise ValueError()
+                result = list_tasks(query.get('q',[''])[0], query.get('status',['all'])[0], int(query.get('offset',['0'])[0]),compact=='1')
             except ValueError:
                 return self.respond(400, {'error':'Bộ lọc tìm kiếm không hợp lệ'})
             return self.respond(200, result)
@@ -987,7 +1068,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200,{'host':MONITOR.snapshot(),'policy':policy,'queue':TASK_QUEUE.stats(),'active':active,'concurrency':1})
         if self.path.startswith('/api/backups/'):
             filename = self.path.removeprefix('/api/backups/')
-            if not re.fullmatch(r'cleanup-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}\.zip',filename):
+            if not re.fullmatch(r'(?:cleanup|task-delete)-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}\.zip',filename):
                 return self.respond(404, {'error':'Không tìm thấy bản sao lưu'})
             file = DB.parent/'backups'/filename
             if not file.is_file():
@@ -1096,6 +1177,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed_request(writing=True):
             return
+        if self.path.startswith('/api/tasks/') and self.path.rsplit('/',1)[-1] in ('delete-preview','delete'):
+            parts=self.path.split('/')
+            if len(parts)!=5:return self.respond(404,{'error':'Không tìm thấy công việc'})
+            try:
+                length=int(self.headers.get('Content-Length','0'))
+                if not 0<length<=1000:raise ValueError()
+                data=json.loads(self.rfile.read(length))
+                if not isinstance(data,dict):raise ValueError()
+            except (ValueError,TypeError):return self.respond(400,{'error':'Yêu cầu xóa không hợp lệ'})
+            status,result=preview_task_delete(parts[3]) if parts[4]=='delete-preview' else delete_task(parts[3],data.get('token'),data.get('confirmation'))
+            return self.respond(status,result)
         if self.path in ('/api/bots','/api/documents','/api/preview') or (self.path.startswith('/api/documents/') and self.path.endswith('/delete')) or (self.path.startswith('/api/tasks/') and self.path.endswith('/edit')):
             try:
                 limit=2100000 if self.path=='/api/preview' or self.path.endswith('/edit') else 100000

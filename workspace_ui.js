@@ -3,8 +3,12 @@
   const $ = (selector) => document.querySelector(selector);
   const pages = {
     workspace: [
-      "Không gian làm việc",
-      "Giao việc ở bên trái, mở kết quả ở bên phải.",
+      "Trao đổi với đội bot",
+      "Giao việc và đọc kết quả đang chọn. Lịch sử nằm riêng trong mục Công việc.",
+    ],
+    tasks: [
+      "Công việc của bạn",
+      "Mở công việc khi cần xem; tải kết quả hoặc xóa việc đã kết thúc.",
     ],
     team: [
       "Đội bot của bạn",
@@ -23,6 +27,9 @@
       "Kết nối Ollama, tải bản sao lưu và dọn dữ liệu cũ.",
     ],
   };
+  let currentView = null,
+    selectedRefreshing = false;
+  const deletedTaskIds = new Set();
   let selectedTask = null,
     files = [],
     originals = [],
@@ -44,6 +51,13 @@
 
   function showView(name) {
     if (!Object.hasOwn(pages, name)) name = "workspace";
+    if (currentView === name) return;
+    currentView = name;
+    if (name !== "workspace") {
+      loadSequence++;
+      previewSequence++;
+      $("#product-preview").srcdoc = "";
+    }
     for (const [id] of Object.entries(pages))
       $("#view-" + id).hidden = id !== name;
     document.querySelectorAll("[data-view]").forEach((button) => {
@@ -54,7 +68,31 @@
     $("#page-title").textContent = pages[name][0];
     $("#page-description").textContent = pages[name][1];
     history.replaceState(null, "", "#" + name);
+    window.dispatchEvent(
+      new CustomEvent("workspace:view", { detail: { name } }),
+    );
+    if (name === "workspace") refreshSelectedTask();
+    if (
+      name === "workspace" &&
+      selectedTask &&
+      $("#tab-preview").getAttribute("aria-selected") === "true"
+    )
+      refreshPreview();
+    if (name === "team") loadBots(true);
   }
+  function showTasks(status = "all") {
+    pageOffset = 0;
+    $("#search").value = "";
+    $("#filter").value = status;
+    showView("tasks");
+    refresh();
+  }
+  $("#open-tasks").onclick = () => showTasks();
+  document
+    .querySelectorAll("[data-task-filter]")
+    .forEach(
+      (button) => (button.onclick = () => showTasks(button.dataset.taskFilter)),
+    );
   document
     .querySelectorAll("[data-view]")
     .forEach(
@@ -67,6 +105,8 @@
   $("#new-task").onclick = () => {
     showView("workspace");
     $(".workspace-grid").classList.remove("expanded");
+    $("#expand-inspector").setAttribute("aria-label", "Mở rộng khung sản phẩm");
+    $("#expand-inspector").title = "Mở rộng khung sản phẩm";
     $("#compose-panel").scrollIntoView({ behavior: "smooth", block: "start" });
     $("#prompt").focus();
   };
@@ -89,24 +129,18 @@
           : "Chưa kết nối Ollama · có thể dùng mô phỏng";
   });
   window.addEventListener("workspace:update", ({ detail }) => {
-    const { team, tasks } = detail;
-    $("#stat-total").textContent = Object.values(team.totals).reduce(
+    const { team } = detail;
+    const total = Object.values(team.totals).reduce(
       (sum, count) => sum + count,
       0,
     );
+    $("#stat-total").textContent = total;
+    $("#nav-task-count").textContent = total;
+    $("#workspace-task-count").textContent = total;
     $("#stat-running").textContent = team.totals.running || 0;
     $("#stat-waiting").textContent = team.queue.waiting;
     $("#stat-review").textContent = team.totals.needs_review || 0;
-    if (selectedTask) {
-      const latest = tasks.find((task) => task.id === selectedTask.id);
-      if (
-        latest &&
-        !editorDirty &&
-        !savingProduct &&
-        (latest.output !== selectedTask.output ||
-          latest.status !== selectedTask.status)
-      )
-        openTask(latest);
+    if (selectedTask)
       document
         .querySelectorAll(".task-card")
         .forEach((card) =>
@@ -115,9 +149,88 @@
             card.dataset.taskId === selectedTask.id,
           ),
         );
-    }
+    refreshSelectedTask();
   });
-
+  async function refreshSelectedTask() {
+    if (
+      selectedRefreshing ||
+      currentView !== "workspace" ||
+      !selectedTask ||
+      editorDirty ||
+      savingProduct ||
+      !["queued", "running"].includes(selectedTask.status)
+    )
+      return;
+    const id = selectedTask.id,
+      sequence = loadSequence;
+    selectedRefreshing = true;
+    try {
+      const response = await apiFetch("/api/tasks/" + id);
+      const latest = await response.json();
+      if (
+        sequence !== loadSequence ||
+        currentView !== "workspace" ||
+        selectedTask?.id !== id ||
+        editorDirty ||
+        savingProduct
+      )
+        return;
+      if (response.status === 404) {
+        clearInspector(true);
+        notifyWorkspace("Công việc đã được xóa ở phiên khác.");
+        return;
+      }
+      if (!response.ok) throw Error(latest.error);
+      if (
+        latest.output !== selectedTask.output ||
+        latest.status !== selectedTask.status ||
+        latest.stage !== selectedTask.stage
+      ) {
+        const tab = document
+          .querySelector('.inspector-tabs [aria-selected="true"]')
+          .id.replace("tab-", "");
+        await openTask(latest, tab, true);
+      }
+    } catch (error) {
+      $("#inspector-error").textContent = error.message;
+    } finally {
+      selectedRefreshing = false;
+    }
+  }
+  function clearInspector(force = false) {
+    if (
+      savingProduct ||
+      (!force &&
+        editorDirty &&
+        !confirm("Bỏ thay đổi tệp chưa lưu và đóng kết quả?"))
+    )
+      return;
+    loadSequence++;
+    previewSequence++;
+    selectedTask = null;
+    files = [];
+    originals = [];
+    fileIndex = 0;
+    editorDirty = false;
+    $("#product-preview").srcdoc = "";
+    $("#preview-text").textContent = "";
+    $("#product-editor").value = "";
+    $("#product-files").replaceChildren();
+    $("#inspector-output").replaceChildren();
+    $("#inspector-body").hidden = true;
+    $("#close-inspector").hidden = true;
+    $("#expand-inspector").hidden = true;
+    $("#inspector-empty").hidden = false;
+    $("#inspector-title").textContent = "Xem kết quả tại đây";
+    $("#delete-open-task").hidden = true;
+    $(".workspace-grid").classList.remove("expanded");
+    $("#expand-inspector").setAttribute("aria-label", "Mở rộng khung sản phẩm");
+    $("#expand-inspector").title = "Mở rộng khung sản phẩm";
+  }
+  $("#close-inspector").onclick = () => clearInspector();
+  $("#delete-open-task").onclick = () => {
+    if (selectedTask) deleteTask(selectedTask);
+  };
   function textBlock(text) {
     const block = el("div", "");
     block.className = "readable-text";
@@ -280,9 +393,10 @@
     markEditorDirty();
     renderFileTree();
   };
-  async function openTask(task, tab = "output") {
+  async function openTask(task, tab = "output", passive = false) {
     if (savingProduct) return;
     if (
+      !passive &&
       editorDirty &&
       !confirm("Bỏ thay đổi chưa lưu trong khung sản phẩm để mở kết quả này?")
     )
@@ -290,8 +404,10 @@
     const sequence = ++loadSequence;
     previewSequence++;
     try {
-      if (typeof task === "string") {
-        const response = await apiFetch("/api/tasks/" + task);
+      if (typeof task === "string" || typeof task.output !== "string") {
+        const response = await apiFetch(
+          "/api/tasks/" + (typeof task === "string" ? task : task.id),
+        );
         task = await response.json();
         if (!response.ok) throw Error(task.error);
       }
@@ -305,15 +421,22 @@
         if (response.ok) product = data;
         else if (tab === "code") throw Error(data.error);
       }
-      if (sequence !== loadSequence) return;
+      if (
+        sequence !== loadSequence ||
+        deletedTaskIds.has(task.id) ||
+        (passive && currentView !== "workspace")
+      )
+        return;
       selectedTask = task;
       originals = product?.files || [];
       files = originals.map((file) => ({ ...file }));
       fileIndex = 0;
       editorDirty = false;
-      showView("workspace");
+      if (!passive) showView("workspace");
       $("#inspector-empty").hidden = true;
       $("#inspector-body").hidden = false;
+      $("#close-inspector").hidden = false;
+      $("#expand-inspector").hidden = false;
       $("#inspector-title").textContent = task.prompt;
       $("#inspector-status").textContent =
         (labels[task.status] || task.status) +
@@ -332,6 +455,9 @@
       $("#product-report").hidden = !Object.keys(JSON.parse(task.output))
         .length;
       $("#ask-revision").hidden = !files.length;
+      $("#delete-open-task").hidden = ["queued", "running"].includes(
+        task.status,
+      );
       renderOutput();
       renderFileTree();
       selectTab(files.length ? tab : "output");
@@ -340,9 +466,13 @@
         .forEach((card) =>
           card.classList.toggle("selected", card.dataset.taskId === task.id),
         );
-      $("#inspector").scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (!passive)
+        $("#inspector").scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
     } catch (error) {
-      $("#error").textContent = error.message;
+      reportError(error.message);
     }
   }
   $("#ask-revision").onclick = async () => {
@@ -661,8 +791,9 @@
   };
   window.addEventListener("workspace:documents", renderDocuments);
 
-  async function loadBots() {
-    if (botsLoading) return;
+  async function loadBots(force = false) {
+    if (botsLoading || (!force && bots.length && currentView !== "team"))
+      return;
     botsLoading = true;
     try {
       const response = await apiFetch("/api/bots");
@@ -684,10 +815,17 @@
         const top = el("div", "");
         top.className = "bot-top";
         const avatar = el(
-          "span",
+          "button",
           bot.kind === "manager" ? "◷" : bot.kind === "expert" ? "◈" : "◇",
         );
         avatar.className = "bot-avatar";
+        avatar.type = "button";
+        avatar.title = bot.configurable
+          ? "Thiết lập " + bot.name
+          : "Mở giới hạn tài nguyên";
+        avatar.setAttribute("aria-label", avatar.title);
+        avatar.onclick = () =>
+          bot.configurable ? editBot(bot) : showView("resources");
         const kind = el(
           "span",
           {
@@ -806,7 +944,18 @@
       event.returnValue = "";
     }
   });
-  window.WorkspaceUI = { showView, openTask };
+  window.WorkspaceUI = {
+    showView,
+    openTask,
+    deletionWarning: (id) =>
+      selectedTask?.id === id && editorDirty
+        ? "Bản sửa tệp chưa lưu trong khung đang xem cũng sẽ được bỏ."
+        : "",
+    taskDeleted: (id) => {
+      deletedTaskIds.add(id);
+      if (selectedTask?.id === id) clearInspector(true);
+    },
+  };
   $("#sidebar-health").textContent = $("#health-status").textContent;
   showView(location.hash.slice(1));
   loadDocuments();

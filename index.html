@@ -20,7 +20,11 @@
       <p class="nav-caption">KHÔNG GIAN LÀM VIỆC</p>
       <nav class="main-nav">
         <button data-view="workspace" aria-current="page">
-          <span>▦</span> Làm việc
+          <span aria-hidden="true">▦</span> Trao đổi
+        </button>
+        <button data-view="tasks" title="Mở danh sách công việc">
+          <span aria-hidden="true">▣</span> Công việc
+          <small id="nav-task-count">0</small>
         </button>
         <button data-view="team">
           <span>◈</span> Đội bot <small>9</small>
@@ -40,19 +44,17 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">BẠN CHỈ HUY · ĐỘI BOT THỰC HIỆN</p>
-          <h1 id="page-title">Không gian làm việc</h1>
+          <h1 id="page-title">Trao đổi với đội bot</h1>
           <p id="page-description">
-            Giao việc ở bên trái, mở kết quả ở bên phải.
+            Giao việc và đọc kết quả đang chọn. Lịch sử nằm riêng trong mục Công
+            việc.
           </p>
         </div>
         <span class="local-badge"><span class="online-dot"></span> Cục bộ</span>
       </header>
-      <div class="overview-strip" aria-label="Tổng quan nhiệm vụ">
-        <div><span>Tổng nhiệm vụ</span><strong id="stat-total">0</strong></div>
-        <div><span>Đang xử lý</span><strong id="stat-running">0</strong></div>
-        <div><span>Đang chờ</span><strong id="stat-waiting">0</strong></div>
-        <div><span>Cần bạn xem</span><strong id="stat-review">0</strong></div>
-      </div>
+      <p id="workspace-notice" role="status" hidden></p>
+      <a id="task-delete-backup" hidden>Tải bản sao trước khi xóa</a>
+
       <section class="queue-panel" aria-label="Điều khiển hàng đợi">
         <div>
           <strong id="queue-state">Đang tải hàng đợi…</strong>
@@ -172,42 +174,10 @@
                 triển khai sản phẩm.</small
               >
             </section>
-            <section id="task-section" class="task-section">
-              <h2>Nhiệm vụ</h2>
-              <div class="filters">
-                <div>
-                  <label for="search">Tìm trong yêu cầu hoặc mã nhiệm vụ</label
-                  ><input
-                    id="search"
-                    type="search"
-                    maxlength="200"
-                    placeholder="Ví dụ: ghi chú"
-                  />
-                </div>
-                <div>
-                  <label for="filter">Trạng thái</label
-                  ><select id="filter">
-                    <option value="all">Tất cả</option>
-                    <option value="running">Đang làm</option>
-                    <option value="queued">Chờ</option>
-                    <option value="completed">Đã chạy xong</option>
-                    <option value="cancelled">Đã hủy</option>
-                    <option value="approved">Bạn đã duyệt</option>
-                    <option value="needs_review">Cần bạn xem</option>
-                    <option value="failed">Thất bại</option>
-                    <option value="interrupted">Bị gián đoạn</option>
-                  </select>
-                </div>
-              </div>
-              <p id="summary" aria-live="polite"></p>
-              <div class="pagination">
-                <button id="previous-page" class="secondary">
-                  ← Trang trước</button
-                ><span id="page-info"></span
-                ><button id="next-page" class="secondary">Trang sau →</button>
-              </div>
-              <div id="tasks"></div>
-            </section>
+            <button id="open-tasks" class="secondary workspace-shortcut">
+              <span aria-hidden="true">▣</span> Mở danh sách công việc
+              <span id="workspace-task-count" class="pill">0</span>
+            </button>
           </div>
           <aside
             class="inspector"
@@ -221,6 +191,7 @@
               </div>
               <button
                 id="expand-inspector"
+                hidden
                 class="icon-button secondary"
                 title="Mở rộng khung sản phẩm"
                 aria-label="Mở rộng khung sản phẩm"
@@ -228,13 +199,22 @@
                 ⤢
               </button>
             </div>
+            <button
+              id="close-inspector"
+              hidden
+              class="secondary close-inspector"
+              aria-label="Đóng kết quả đang xem"
+              title="Đóng kết quả và giải phóng khung xem"
+            >
+              ×
+            </button>
             <div id="inspector-empty" class="empty-state">
               <div class="empty-icon">▧</div>
               <h3>Một chỗ để đọc và sửa</h3>
               <p>
-                Chọn <strong>Mở kết quả</strong> hoặc
-                <strong>Xem bộ tệp</strong> trên nhiệm vụ. Bạn có thể duyệt tệp,
-                xem trước và lưu bản chỉnh sửa.
+                Vào <strong>Công việc</strong>, chọn
+                <strong>Mở kết quả</strong> hoặc <strong>Xem bộ tệp</strong>.
+                Bạn có thể duyệt tệp, xem trước và lưu bản chỉnh sửa.
               </p>
               <div class="empty-steps">
                 <span>1 · Giao việc</span><span>2 · Đội xử lý</span
@@ -314,6 +294,8 @@
               <div class="inspector-downloads">
                 <a id="product-download-zip" hidden>Tải bộ tệp ZIP ↓</a
                 ><a id="product-report">Tải báo cáo ↓</a
+                ><button id="delete-open-task" class="danger secondary" hidden>
+                  Xóa công việc</button
                 ><button id="ask-revision" class="secondary" hidden>
                   Nhờ bot chỉnh tiếp
                 </button>
@@ -321,6 +303,69 @@
             </div>
           </aside>
         </div>
+      </section>
+      <section
+        class="page-view"
+        id="view-tasks"
+        hidden
+        aria-label="Danh sách công việc"
+      >
+        <div class="overview-strip" aria-label="Tổng quan nhiệm vụ">
+          <button data-task-filter="all" title="Xem tất cả công việc">
+            <span>Tổng công việc</span><strong id="stat-total">0</strong>
+          </button>
+          <button data-task-filter="running" title="Xem công việc đang làm">
+            <span>Đang xử lý</span><strong id="stat-running">0</strong>
+          </button>
+          <button data-task-filter="queued" title="Xem công việc đang chờ">
+            <span>Đang chờ</span><strong id="stat-waiting">0</strong>
+          </button>
+          <button
+            data-task-filter="needs_review"
+            title="Xem công việc cần bạn xem"
+          >
+            <span>Cần bạn xem</span><strong id="stat-review">0</strong>
+          </button>
+        </div>
+        <section id="task-section" class="task-section">
+          <h2>Công việc của bạn</h2>
+          <p class="hint">
+            Mỗi dòng là một công việc. Mở khi cần xem, hoặc xóa công việc đã kết
+            thúc cạnh phần tải.
+          </p>
+          <div class="filters">
+            <div>
+              <label for="search">Tìm trong yêu cầu hoặc mã nhiệm vụ</label
+              ><input
+                id="search"
+                type="search"
+                maxlength="200"
+                placeholder="Ví dụ: ghi chú"
+              />
+            </div>
+            <div>
+              <label for="filter">Trạng thái</label
+              ><select id="filter">
+                <option value="all">Tất cả</option>
+                <option value="running">Đang làm</option>
+                <option value="queued">Chờ</option>
+                <option value="completed">Đã chạy xong</option>
+                <option value="cancelled">Đã hủy</option>
+                <option value="approved">Bạn đã duyệt</option>
+                <option value="needs_review">Cần bạn xem</option>
+                <option value="failed">Thất bại</option>
+                <option value="interrupted">Bị gián đoạn</option>
+              </select>
+            </div>
+          </div>
+          <p id="summary" aria-live="polite"></p>
+          <div class="pagination">
+            <button id="previous-page" class="secondary">← Trang trước</button
+            ><span id="page-info"></span
+            ><button id="next-page" class="secondary">Trang sau →</button>
+          </div>
+          <div id="tasks"></div>
+        </section>
       </section>
       <section class="page-view" id="view-team" hidden aria-label="Đội bot">
         <div class="section-heading">
@@ -569,6 +614,23 @@
         </details>
       </section>
     </main>
+    <dialog id="task-delete-dialog" aria-labelledby="task-delete-title">
+      <div class="dialog-heading">
+        <h2 id="task-delete-title">Xóa công việc này?</h2>
+        <button id="cancel-task-delete" class="secondary">Giữ lại</button>
+      </div>
+      <h3 id="task-delete-name"></h3>
+      <p id="task-delete-summary"></p>
+      <p class="hint">
+        Ứng dụng lưu bản sao trước khi xóa. Các công việc khác, thư viện tài
+        liệu và thiết lập bot được giữ. Bản sao vẫn chiếm dung lượng; xóa giúp
+        danh sách gọn hơn.
+      </p>
+      <p id="task-delete-status" role="status"></p>
+      <button id="confirm-task-delete" class="danger secondary" disabled>
+        Xóa công việc này
+      </button>
+    </dialog>
     <dialog id="bot-dialog">
       <div class="dialog-heading">
         <h2 id="bot-dialog-title">Thiết lập bot</h2>

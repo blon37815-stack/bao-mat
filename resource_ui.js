@@ -2,7 +2,11 @@
 let resourcesLoading = false,
   resourcePolicyLoaded = false;
 async function refreshResources() {
-  if (resourcesLoading) return;
+  if (
+    resourcesLoading ||
+    (resourcePolicyLoaded && document.querySelector("#view-resources").hidden)
+  )
+    return;
   resourcesLoading = true;
   try {
     const response = await apiFetch("/api/resources");
@@ -103,4 +107,7 @@ document.querySelector("#resource-form").onsubmit = async (event) => {
   }
 };
 refreshResources();
+window.addEventListener("workspace:view", (event) => {
+  if (event.detail.name === "resources") refreshResources();
+});
 setInterval(refreshResources, 2500);

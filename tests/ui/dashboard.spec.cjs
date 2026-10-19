@@ -7,6 +7,22 @@ async function post(page, path, payload) {
   return response.json();
 }
 
+async function taskList(page, query) {
+  await page.locator('[data-view="tasks"]').click();
+  if (query !== undefined) {
+    const loaded=page.waitForResponse(response=>{
+      const url=new URL(response.url());
+      return url.pathname==='/api/tasks' && response.request().method()==='GET' && url.searchParams.get('q')===query;
+    });
+    await page.locator('#search').fill(query);
+    const data=await (await loaded).json();
+    await expect(page.locator('#tasks article')).toHaveCount(data.tasks.length);
+  }
+}
+async function moreActions(card) {
+  if (!await card.locator('details').evaluate(node=>node.open)) await card.locator('summary').click();
+}
+
 test.beforeEach(async ({page}) => {
   page.on('dialog', dialog => dialog.accept());
   await post(page, '/api/queue', {paused:false});
@@ -20,6 +36,7 @@ test('per-file workflow with a fixture provider shows three files and request co
   await page.locator('#mode').selectOption('ollama');
   await page.locator('#prompt').fill('Kiểm thử sinh từng tệp trên trình duyệt');
   await page.locator('#submit').click();
+  await taskList(page);
   const card=page.locator('#tasks article').filter({hasText:'Kiểm thử sinh từng tệp trên trình duyệt'});
   await expect(card).toContainText('AI đánh giá đạt');
   await expect(card).toContainText('Sinh từng tệp riêng · 6 lượt yêu cầu mô hình');
@@ -27,7 +44,7 @@ test('per-file workflow with a fixture provider shows three files and request co
   await card.getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
   await expect(page.locator('#product-files button')).toHaveText(['notes.json','config.json','README.md']);
   const download=page.waitForEvent('download');
-  await card.getByRole('link',{name:'Tải mã nguồn ZIP'}).click();
+  await page.locator('#product-download-zip').click();
   expect((await download).suggestedFilename()).toMatch(/^product-.*\.zip$/);
 });
 
@@ -52,13 +69,17 @@ test('pause, submit demo, resume and inspect actual step history', async ({page}
   await page.locator('#mode').selectOption('demo');
   await page.locator('#prompt').fill('Kiểm tra tạm dừng bằng trình duyệt');
   await page.locator('#submit').click();
+  await taskList(page);
   const card = page.locator('#tasks article').filter({hasText:'Kiểm tra tạm dừng bằng trình duyệt'});
   await expect(card).toContainText('Chờ');
+  await expect(card.getByRole('button',{name:'Xóa công việc',exact:true})).toHaveCount(0);
   await page.waitForTimeout(500);
   await expect(card).not.toContainText('Hoàn thành mô phỏng');
   await page.locator('#toggle-queue').click();
   await expect(card).toContainText('Hoàn thành mô phỏng');
+  await expect(card.getByRole('button',{name:'Xóa công việc',exact:true})).toBeVisible();
   await expect(card.locator('[data-duration]')).toContainText('Đã xong 4 bước');
+  await moreActions(card);
   await card.getByRole('button',{name:'Lịch sử từng bước'}).click();
   await expect(page.locator('#file-dialog')).toBeVisible();
   await expect(page.locator('#dialog-title')).toHaveText('Lịch sử từng bước');
@@ -76,6 +97,7 @@ test('product preview, download, checks and revision draft survive reload', asyn
   await page.locator('#mode').selectOption('demo');
   await page.locator('#prompt').fill('Sản phẩm mô phỏng kiểm thử giao diện');
   await page.locator('#submit').click();
+  await taskList(page);
   const card=page.locator('#tasks article').filter({hasText:'Sản phẩm mô phỏng kiểm thử giao diện'});
   await expect(card).toContainText('Hoàn thành mô phỏng');
   await expect(card).toContainText('notes.json, config.json, README.md');
@@ -84,6 +106,8 @@ test('product preview, download, checks and revision draft survive reload', asyn
   const downloaded=page.waitForEvent('download');
   await page.locator('#product-download-file').click();
   expect((await downloaded).suggestedFilename()).toBe('README.md');
+  await taskList(page);
+  await moreActions(card);
   await card.getByRole('button',{name:'Kiểm tra cú pháp'}).click();
   await expect(page.locator('#file-notice')).toContainText('Chưa hỗ trợ');
   await page.locator('#close-files').click();
@@ -96,7 +120,7 @@ test('product preview, download, checks and revision draft survive reload', asyn
 
 test('polling preserves expanded result and does not recreate unchanged cards', async ({page}) => {
   const result=await post(page,'/api/tasks',{prompt:'Kết quả giữ nguyên khi làm mới',mode:'demo'});
-  await page.locator('#search').fill(result.id);
+  await taskList(page, result.id);
   const card=page.locator('#tasks article').filter({hasText:'Kết quả giữ nguyên khi làm mới'});
   await expect(card).toContainText('Hoàn thành mô phỏng');
   await card.locator('summary').click();
@@ -130,11 +154,13 @@ test('cleanup previews, requires typed confirmation, preserves final output and 
   const download=page.waitForEvent('download');
   await page.locator('#cleanup-backup').click();
   expect((await download).suggestedFilename()).toMatch(/^cleanup-.*\.zip$/);
-  await page.locator('[data-view="workspace"]').click();
-  await page.locator('#search').fill('cleanup-fixture');
+  await taskList(page, 'cleanup-fixture');
   const card=page.locator('#tasks article').filter({hasText:'Nhiệm vụ cũ để kiểm thử dọn'});
   await card.locator('summary').click();
-  await expect(card).toContainText('Kết quả cuối cần giữ');
+  await card.getByRole('button',{name:'Mở kết quả',exact:true}).click();
+  await expect(page.locator('#inspector-output')).toContainText('Kết quả cuối cần giữ');
+  await taskList(page);
+  await moreActions(card);
   await card.getByRole('button',{name:'Lịch sử từng bước'}).click();
   await expect(page.locator('#file-content')).toContainText('Nội dung lượt này đã được dọn');
   await page.locator('#close-files').click();
@@ -150,6 +176,7 @@ test('cleanup previews, requires typed confirmation, preserves final output and 
   await page.locator('#cleanup-confirmation').fill('DỌN');
   await page.locator('#apply-cleanup').click();
   await expect(page.locator('#cleanup-status')).toContainText('Đã dọn 1 mục');
+  await taskList(page);
   await expect(card).toHaveCount(0);
 });
 
@@ -170,6 +197,7 @@ test('resource controls persist policy and bounded expert work can retry with mo
     await page.locator('#call-limit').fill('3');
     await page.locator('#prompt').fill('Kiểm thử sinh từng tệp trên trình duyệt');
     await page.locator('#submit').click();
+    await taskList(page);
     const card=page.locator('#tasks article').filter({hasText:'Kiểm thử sinh từng tệp trên trình duyệt'}).first();
     await expect(card).toContainText('Đã dùng hết giới hạn lượt gọi');
     await expect(card).toContainText('lượt gọi 3/3');
@@ -177,6 +205,8 @@ test('resource controls persist policy and bounded expert work can retry with mo
     await expect(page.locator('#product-files button')).toHaveText(['notes.json']);
     page.removeAllListeners('dialog');
     page.on('dialog',dialog=>dialog.type()==='prompt'?dialog.accept('6'):dialog.accept());
+    await taskList(page);
+    await moreActions(card);
     await card.getByRole('button',{name:'Chạy lại từ đầu'}).click();
     await expect(card).toContainText('AI đánh giá đạt');
     await expect(card).toContainText('lượt gọi 6/6');
@@ -223,6 +253,7 @@ test('documents import, edit, attach to a task and delete without changing task 
   const created=page.waitForResponse(response=>response.url().endsWith('/api/tasks') && response.request().method()==='POST');
   await page.locator('#submit').click();
   const task=await (await created).json();
+  await taskList(page);
   const card=page.locator('#tasks article').filter({hasText:'Việc có tài liệu để đọc lại'});
   await expect(card).toContainText('Đính kèm: Tài liệu đính kèm thử nghiệm');
   await page.locator('[data-view="documents"]').click();
@@ -239,7 +270,7 @@ test('documents import, edit, attach to a task and delete without changing task 
 test('static web preview blocks scripts and network, editor saves a new version', async ({page}) => {
   let externalRequests=0;
   await page.route('https://outside.test/**',route=>{externalRequests++;return route.abort();});
-  await page.locator('#search').fill('web-preview-fixture');
+  await taskList(page, 'web-preview-fixture');
   const card=page.locator('#tasks article').filter({hasText:'Trang mẫu để duyệt và chỉnh sửa'});
   await card.getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
   await expect(page.locator('#product-files button')).toHaveCount(4);
@@ -272,15 +303,119 @@ test('static web preview blocks scripts and network, editor saves a new version'
   expect(revision.model_calls).toBe(0);
   expect(revision.generation_method).toBe('manual');
   expect(externalRequests).toBe(0);
+  await page.locator('#expand-inspector').click();
+  await expect(page.locator('.workspace-grid')).toHaveClass(/expanded/);
+  await expect(page.locator('.work-feed')).toBeHidden();
+  await page.locator('#expand-inspector').click();
+  await expect(page.locator('.work-feed')).toBeVisible();
+  await page.locator('#close-inspector').click();
+  await expect(page.locator('#inspector-empty')).toBeVisible();
+  await expect(page.locator('#product-editor')).toHaveValue('');
 });
 
 test('each section is usable on a narrow screen without horizontal overflow', async ({page}) => {
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.setViewportSize({width:390,height:844});
-  for(const view of ['team','documents','resources','settings','workspace']) {
+  for(const view of ['tasks','team','documents','resources','settings','workspace']) {
     await page.locator('[data-view="'+view+'"]').click();
     await expect(page.locator('#view-'+view)).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth)).toBe(false);
   }
   expect(errors).toEqual([]);
+});
+
+test('icons navigate, work history stays separate and only compact summaries load', async ({page}) => {
+  const lists=[];
+  page.on('response',async response=>{
+    const url=new URL(response.url());
+    if(url.pathname==='/api/tasks' && response.request().method()==='GET') {
+      lists.push({compact:url.searchParams.get('compact'),data:await response.json()});
+    }
+  });
+  await page.reload();
+  await expect(page.locator('#view-workspace')).toBeVisible();
+  await page.waitForTimeout(2300);
+  expect(lists).toHaveLength(0);
+  await expect(page.locator('#tasks article')).toHaveCount(0);
+  expect(await page.locator('#view-workspace #task-section').count()).toBe(0);
+  await page.locator('[data-view="tasks"] span').click();
+  await page.locator('#stat-review').click();
+  await expect(page.locator('#view-tasks')).toBeVisible();
+  await expect(page.locator('#filter')).toHaveValue('needs_review');
+  await expect.poll(()=>lists.length).toBeGreaterThan(0);
+  expect(lists.every(item=>item.compact==='1')).toBe(true);
+  for(const {data} of lists) {
+    expect(data.limit).toBe(20);
+    expect(data.tasks.every(task=>!('output' in task) && !('project_memory' in task))).toBe(true);
+  }
+  await page.locator('[data-view="team"] span').click();
+  await page.locator('[data-bot-id="python"] .bot-avatar').click();
+  await expect(page.locator('#bot-dialog')).toBeVisible();
+  await page.locator('#close-bot').click();
+  await page.locator('[data-view="resources"] span').click();
+  await expect(page.locator('#view-resources')).toBeVisible();
+  await page.locator('[data-view="tasks"] span').click();
+  await expect(page.locator('#view-tasks')).toBeVisible();
+  await page.locator('[data-view="workspace"] span').click();
+  await expect(page.locator('#tasks article')).toHaveCount(0);
+  await page.waitForTimeout(250);
+  const count=lists.length;
+  await page.waitForTimeout(2300);
+  expect(lists.length).toBe(count);
+});
+
+test('delete beside downloads previews, cancels, backs up and clears the selected workbench', async ({page}) => {
+  const task=await post(page,'/api/tasks',{prompt:'Công việc để xóa riêng trên giao diện',mode:'demo'});
+  await taskList(page,task.id);
+  const card=page.locator('#tasks article').filter({hasText:'Công việc để xóa riêng trên giao diện'});
+  await expect(card).toContainText('Hoàn thành mô phỏng');
+  await expect(card.locator('.task-row-actions').getByRole('link',{name:'Tải báo cáo'})).toBeVisible();
+  await card.getByRole('button',{name:'Xóa công việc',exact:true}).click();
+  await expect(page.locator('#confirm-task-delete')).toBeEnabled();
+  await expect(page.locator('#task-delete-summary')).toContainText('riêng công việc này');
+  await page.locator('#cancel-task-delete').click();
+  expect((await page.request.get('/api/tasks/'+task.id)).status()).toBe(200);
+  await card.getByRole('button',{name:'Mở kết quả',exact:true}).click();
+  await expect(page.locator('#inspector-body')).toBeVisible();
+  await page.locator('#delete-open-task').click();
+  await expect(page.locator('#confirm-task-delete')).toBeEnabled();
+  await page.locator('#confirm-task-delete').click();
+  await expect(page.locator('#workspace-notice')).toContainText('Đã xóa công việc');
+  await expect(page.locator('#inspector-empty')).toBeVisible();
+  await expect(page.locator('#inspector-body')).toBeHidden();
+  expect((await page.request.get('/api/tasks/'+task.id)).status()).toBe(404);
+  const download=page.waitForEvent('download');
+  await page.locator('#task-delete-backup').click();
+  expect((await download).suggestedFilename()).toMatch(/^task-delete-.*\.zip$/);
+  await taskList(page,task.id);
+  await expect(page.locator('#tasks article')).toHaveCount(0);
+});
+
+test('deleting a source keeps another version and its source comparison usable', async ({page}) => {
+  const parent=await post(page,'/api/tasks',{prompt:'Bản gốc để xóa nhưng giữ phiên bản',mode:'demo',product:true});
+  await expect.poll(async()=> (await (await page.request.get('/api/tasks/'+parent.id)).json()).status).toBe('completed');
+  const child=await post(page,'/api/tasks/'+parent.id+'/edit',{files:[{path:'README.md',content:'# Nội dung phiên bản cần giữ'}]});
+  await taskList(page,parent.id);
+  await page.locator('#tasks article[data-task-id="'+parent.id+'"]').getByRole('button',{name:'Xóa công việc',exact:true}).click();
+  await expect(page.locator('#task-delete-summary')).toContainText('1 công việc liên quan');
+  await page.locator('#confirm-task-delete').click();
+  await expect(page.locator('#workspace-notice')).toContainText('Đã xóa công việc');
+  await page.locator('#search').fill(child.id);
+  const card=page.locator('#tasks article');
+  await expect(card).toContainText('Chỉnh sửa thủ công');
+  await moreActions(card);
+  await expect(card).toContainText('Bản gốc đã xóa');
+  await card.getByRole('button',{name:'So sánh với bản gốc'}).click();
+  await expect(page.locator('#file-content')).toContainText('Nội dung phiên bản cần giữ');
+});
+
+test('a failed action reports an error in the visible work list', async ({page}) => {
+  await taskList(page,'web-preview-fixture');
+  const card=page.locator('#tasks article');
+  await moreActions(card);
+  await page.route('**/api/tasks/web-preview-fixture/checks',route=>route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:'Bộ kiểm tra đang bận thử nghiệm; hãy thử lại.'})}));
+  await card.getByRole('button',{name:'Kiểm tra cú pháp',exact:true}).click();
+  await expect(page.locator('#view-tasks')).toBeVisible();
+  await expect(page.locator('#workspace-notice')).toBeVisible();
+  await expect(page.locator('#workspace-notice')).toContainText('Bộ kiểm tra đang bận');
 });

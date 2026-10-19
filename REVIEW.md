@@ -7,6 +7,15 @@ gói ghi commit và SHA-256 từng tệp để đối chiếu; file này không 
 
 ## Phần mới cần xem
 
+Đợt tách Công việc: task_deletion.py/app.py lưu ZIP trước xóa, so fingerprint
+trước/sau sao lưu và xóa một việc trong transaction. Phiên bản khác giữ
+bản chụp nguồn; deleted_tasks chỉ đánh dấu liên kết còn lại. Danh sách mới
+GET /api/tasks?compact=1 trả 20 dòng, không có output/project_memory/
+bot_preferences; API cũ vẫn giữ 50 dòng và nội dung để tương thích. UI chỉ
+tải danh sách khi mở Công việc, tách khỏi khu Trao đổi, giữ node không đổi
+và dừng polling không cần thiết. Xem tests/test_task_deletion.py và các
+luồng trình duyệt xóa/liên kết/biểu tượng; ZIP trước xóa vẫn chứa dữ liệu.
+
 Đợt mới nhất: index.html/styles.css và workspace_ui.js chia 5 khu, 9 thẻ
 bot, trình soạn thảo và preview. workspace_data.py lưu thư viện/hướng dẫn
 bot và bản chụp theo nhiệm vụ; app.py thêm API JSON có token. Xóa tài liệu

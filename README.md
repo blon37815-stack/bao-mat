@@ -54,15 +54,39 @@ Thanh bên chia ứng dụng thành các khu riêng:
 
 | Khu | Dùng để làm gì |
 |---|---|
-| Làm việc | Soạn yêu cầu, xem danh sách nhiệm vụ và mở kết quả ở khung bên cạnh |
+| Trao đổi | Soạn yêu cầu và đọc một kết quả đang chọn, có thể đóng khung xem |
+| Công việc | Danh sách riêng, tìm/lọc/phân trang, mở kết quả, tải và xóa từng việc |
 | Đội bot | Xem đủ 9 thành phần, vai trò, việc đang làm và thiết lập từng bot |
 | Tài liệu | Nhập, sửa, tìm, xóa tài liệu; quản lý bộ nhớ dự án chung |
 | Tài nguyên | Xem CPU/RAM/GPU và đặt giới hạn lượt gọi, số việc chờ |
 | Thiết lập | Kiểm tra kết nối, tải bản sao lưu và dọn dữ liệu cũ |
 
-Trong Làm việc, bấm Mở kết quả để đọc kế hoạch, sản phẩm và nhận xét.
-Xem bộ tệp mở cây tệp và trình soạn thảo; có thể mở rộng khung bên phải.
+Trong Công việc, bấm Mở kết quả để đọc kế hoạch, sản phẩm và nhận xét ở
+khu Trao đổi. Xem bộ tệp mở cây tệp và trình soạn thảo; có thể mở rộng hoặc
+đóng khung bên phải. Biểu tượng bot mở thiết lập; ô thống kê mở bộ lọc việc.
 Chuyên gia/lượt gọi/tài liệu đính kèm nằm trong phần tùy chọn thu gọn.
+
+Danh sách chỉ tải khi mở Công việc, 20 dòng mỗi trang. Không gửi kết quả
+dài, bộ nhớ hoặc hướng dẫn riêng của bot trong phản hồi danh sách. Kết quả
+đầy đủ chỉ tải cho công việc bạn mở; tự cập nhật khi việc đang chạy và khu
+Trao đổi đang hiển thị. Đổi khu dừng tải danh sách/số đo không cần thiết;
+đóng kết quả xóa cây tệp, nội dung và iframe khỏi khung xem. Các dòng
+không đổi được giữ khi lọc/tự làm mới, không dựng lại toàn bộ danh sách.
+
+Xóa công việc nằm cạnh phần tải trong danh sách và khung kết quả. Chỉ xóa
+việc đã kết thúc; việc đang chờ/chạy cần hoàn tất hoặc hủy và đợi luồng
+dừng hẳn. Hộp xác nhận nêu nội dung và liên kết liên quan. Máy chủ lưu bản
+sao SQLite nhất quán và fsync trước khi xóa, kiểm tra lại dữ liệu trước
+commit; sao lưu lỗi hoặc việc đổi thì giữ công việc. Bản xem trước hết hạn
+sau 5 phút, có token và cần cùng phiên CSRF.
+
+Xóa chỉ bỏ dữ liệu riêng của việc được chọn, không xóa phiên bản khác,
+thư viện hoặc thiết lập chung. Phiên bản sửa vẫn so sánh được bằng bản
+chụp nguồn dù bản gốc đã xóa. Chỉ giữ mã/tên ngắn cho liên kết còn lại;
+không có nút mở nội dung bản đã xóa. Lượt chạy lại đã xóa có thể được tạo
+lại từ công việc trước nếu trạng thái cho phép. ZIP trước xóa nằm trong
+data/backups và có nút tải. Xóa giúp nhẹ danh sách; bản sao vẫn chiếm chỗ,
+SQLite có thể giữ trang trống để tái sử dụng, không tự thu nhỏ tệp.
 
 - **Mô phỏng:** không gọi mô hình; sản phẩm chỉ là README mô phỏng.
 - **Ollama:** gọi AI trên máy, không phí API; không tự chuyển sang OpenAI.
