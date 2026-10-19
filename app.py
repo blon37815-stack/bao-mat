@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TypedDict
-from artifacts import parse_files, zip_files
+from artifacts import parse_files, zip_files, check_files
 from maintenance import ollama_health, backup_database
 from langgraph.graph import StateGraph, START, END
 
@@ -295,9 +295,16 @@ def build_graph():
                 output = json.dumps({'files':[{'path':'README.md','content':'# Sản phẩm mô phỏng\nChưa gọi AI hay tạo dự án thực tế.'}]}, ensure_ascii=False)
             if key == 'review' and state.get('product'):
                 try:
-                    parse_files(state.get('result',''))
+                    files = parse_files(state.get('result',''))
                 except ValueError as error:
                     output = json.dumps({'passed':False,'issues':[str(error)]}, ensure_ascii=False)
+                else:
+                    checks = check_files(files)
+                    if checks['status'] == 'failed':
+                        issues = [item['path']+': '+item['message'] for item in checks['findings'] if item['status']=='failed']
+                        output = json.dumps({'passed':False,'issues':issues}, ensure_ascii=False)
+                    elif checks['status'] == 'unavailable':
+                        output = 'Bộ kiểm tra cú pháp không hoàn tất; cần người xem.'
             output = final_answer(output)
             if not output:
                 raise ValueError('No final answer')
@@ -480,6 +487,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, {'ollama':ollama_health(os.environ.get('OLLAMA_BASE_URL','http://127.0.0.1:11434'),
                                    os.environ.get('OLLAMA_MODEL','qwen3:4b')),
                                    'openai_configured':bool(os.environ.get('OPENAI_API_KEY'))})
+        if self.path.startswith('/api/tasks/') and self.path.endswith('/checks'):
+            parts = self.path.split('/')
+            if len(parts) != 5:
+                return self.respond(404, {'error':'Không tìm thấy'})
+            status, product = product_files(parts[3])
+            if status != 200:
+                return self.respond(status, product)
+            return self.respond(200, check_files(product['files']))
         if self.path.startswith('/api/tasks/') and self.path.endswith('/diff'):
             parts = self.path.split('/')
             if len(parts) != 5:

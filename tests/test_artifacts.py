@@ -32,3 +32,34 @@ class ArtifactTest(unittest.TestCase):
     def test_accepts_fenced_json_and_literal_code(self):
         files = parse_files('```json\n'+self.encode('example.txt','Thẻ <think> là ví dụ')+'\n```')
         self.assertIn('<think>', files[0]['content'])
+
+    def test_static_checks_distinguish_failed_passed_and_skipped(self):
+        from artifacts import check_files
+        report = check_files([
+            {'path':'good.py','content':'print("Chào")'},
+            {'path':'bad.py','content':'return 1'},
+            {'path':'good.json','content':'{"title":"Ghi chú"}'},
+            {'path':'bad.json','content':'{"value":NaN}'},
+            {'path':'app.js','content':'not checked'}])
+        self.assertEqual(report['status'], 'failed')
+        self.assertEqual(report['checked'], 4)
+        self.assertEqual(report['skipped'], 1)
+        self.assertEqual([item['status'] for item in report['findings']], ['passed','failed','passed','failed','skipped'])
+
+    def test_static_check_does_not_execute_python(self):
+        import tempfile
+        from pathlib import Path
+        from artifacts import check_files
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary)/'must-not-exist.txt'
+            report = check_files([{'path':'danger.py','content':f'open({str(marker)!r}, "w").write("executed")\nraise RuntimeError("must not execute")'}])
+            self.assertEqual(report['status'], 'passed')
+            self.assertFalse(marker.exists())
+        self.assertEqual(check_files([{'path':'index.html','content':'<html>'}])['status'], 'not_supported')
+
+    def test_checker_timeout_is_unverified(self):
+        import subprocess
+        from unittest.mock import patch
+        from artifacts import check_files
+        with patch('artifacts.subprocess.run', side_effect=subprocess.TimeoutExpired('checker', 8)):
+            self.assertEqual(check_files([{'path':'a.py','content':'pass'}])['status'], 'unavailable')

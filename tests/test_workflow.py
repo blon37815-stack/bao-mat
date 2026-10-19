@@ -88,6 +88,7 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(new_task['status'], 'completed')
             self.assertTrue(new_task['product'])
             self.assertEqual(get('/api/tasks/'+new_id+'/files')['files'][0]['path'], 'README.md')
+            self.assertEqual(get('/api/tasks/'+new_id+'/checks')['status'], 'not_supported')
             with urllib.request.urlopen(base+'/api/tasks/'+new_id+'/file/0') as response:
                 self.assertIn('attachment', response.headers['Content-Disposition'])
                 self.assertIn('mô phỏng', response.read().decode('utf-8'))
@@ -441,6 +442,29 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual({change['path']:change['kind'] for change in diff['changes']}, {'add.txt':'added','edit.py':'modified','remove.txt':'deleted'})
         self.assertIn('-old', next(change['diff'] for change in diff['changes'] if change['path']=='edit.py'))
         self.assertEqual(app.product_diff('unknown')[0], 404)
+
+    def test_real_syntax_error_overrides_ai_pass_and_gets_repaired(self):
+        with app.connect() as db:
+            db.execute('INSERT INTO task_products VALUES (?,1)', ('test',))
+        bad = json.dumps({'files':[{'path':'main.py','content':'def broken(:'}]})
+        good = json.dumps({'files':[{'path':'main.py','content':'print("Hi")'}]})
+        with patch.object(app, 'ollama_reply', side_effect=['Kế hoạch',bad,'{"passed":true,"issues":[]}',good,'{"passed":true,"issues":[]}']) as model:
+            app.run('test','Tạo Python','ollama')
+        self.assertEqual(self.row()['status'], 'completed')
+        self.assertEqual(model.call_count, 5)
+        repair_context = json.loads(model.call_args_list[3].args[0][1]['content'])
+        review = json.loads(repair_context['review'])
+        self.assertFalse(review['passed'])
+        self.assertIn('main.py', review['issues'][0])
+        self.assertIn('Dòng 1', review['issues'][0])
+
+    def test_unavailable_checker_does_not_claim_success(self):
+        with app.connect() as db:
+            db.execute('INSERT INTO task_products VALUES (?,1)', ('test',))
+        product = json.dumps({'files':[{'path':'main.py','content':'pass'}]})
+        with patch.object(app, 'ollama_reply', side_effect=['Kế hoạch',product,'{"passed":true,"issues":[]}']), patch.object(app, 'check_files', return_value={'status':'unavailable'}):
+            app.run('test','Tạo Python','ollama')
+        self.assertEqual(self.row()['status'], 'needs_review')
 
 if __name__ == '__main__':
     unittest.main()

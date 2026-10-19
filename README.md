@@ -287,3 +287,30 @@ offset. `GET /api/health` kiểm tra kết nối; `POST /api/backup` tải ZIP, 
 cầu Content-Type JSON và token phiên. Bản sao được tạo ở thư mục tạm rồi
 xóa; dữ liệu ZIP được giữ trong RAM lúc tải, phù hợp cơ sở dữ liệu cá nhân
 nhỏ. Nhiệm vụ hoàn thành sau thời điểm chụp sẽ cần bản sao lưu tiếp theo.
+
+## Mẫu nhiệm vụ và kiểm tra cú pháp sản phẩm
+
+Chọn một mẫu ở ô giao việc: kế hoạch sản phẩm, trang ghi chú web, ứng dụng
+Python dòng lệnh hoặc bộ dữ liệu JSON. Mẫu chỉ điền yêu cầu và chọn chế độ
+tạo bộ mã, không tự giao việc hay đổi nhà cung cấp AI. Nếu đang có yêu cầu
+hoặc bản gốc được chọn, giao diện hỏi trước khi thay thế.
+
+Ở bộ sản phẩm, bấm **Kiểm tra cú pháp** để xem từng tệp đạt/lỗi/bỏ qua.
+Hỗ trợ `.py` theo phiên bản Python đang chạy và `.json` theo JSON chuẩn.
+HTML/CSS/JavaScript cùng các loại khác được ghi rõ chưa hỗ trợ. Tệp Python
+được compile thành code object trong một tiến trình Python riêng, không
+execute, không import module của sản phẩm, không cài phụ thuộc hay viết
+bytecode. Có timeout 8 giây; nếu bộ kiểm tra lỗi hoặc quá hạn thì không
+kết luận đạt. Đây là kiểm tra cú pháp, không phải sandbox để chạy mã, kiểm
+thử chức năng, kiểm tra bảo mật hoặc bảo đảm sản phẩm hoạt động.
+
+Trong bước kiểm tra của luồng tạo/sửa sản phẩm, lỗi cú pháp Python/JSON được
+đưa vào danh sách lỗi để bot sửa (vẫn tối đa hai lần). Kết luận AI "đạt"
+không ghi đè lỗi cú pháp do bộ kiểm tra phát hiện. Nếu bộ kiểm tra không
+hoàn tất, nhiệm vụ cần người xem. Tải mã lỗi vẫn được phép để bạn kiểm tra;
+người dùng vẫn có thể chủ động duyệt kết quả, việc duyệt không tự sửa lỗi.
+
+API: `GET /api/tasks/{id}/checks` trả status, checked, skipped và findings.
+Các trạng thái gồm passed (chỉ các tệp được hỗ trợ), failed, not_supported
+(không có tệp được hỗ trợ), unavailable (không kiểm tra được). Kết quả kiểm
+tra được tính lại khi bấm nút; chưa lưu lịch sử báo cáo kiểm tra.

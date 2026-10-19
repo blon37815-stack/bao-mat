@@ -2,6 +2,8 @@
 import io
 import json
 import re
+import subprocess
+import sys
 import unicodedata
 import zipfile
 
@@ -57,3 +59,51 @@ def zip_files(files):
         for item in files:
             archive.writestr(item['path'], item['content'].encode('utf-8'))
     return buffer.getvalue()
+
+
+SYNTAX_CHECKER = r'''
+import json, sys
+files = json.load(sys.stdin)
+findings = []
+for file in files:
+    path, text = file['path'], file['content']
+    extension = path.rsplit('.', 1)[-1].lower()
+    if extension not in ('py','json'):
+        findings.append({'path':path,'status':'skipped','message':'Chưa hỗ trợ kiểm tra cú pháp loại tệp này'})
+        continue
+    try:
+        if extension == 'py':
+            # Compile creates a code object; it never executes the supplied code.
+            compile(text, path, 'exec', dont_inherit=True)
+        else:
+            def reject_constant(value):
+                raise ValueError('Hằng số không hợp lệ trong JSON: '+value)
+            json.loads(text, parse_constant=reject_constant)
+        findings.append({'path':path,'status':'passed','message':'Đạt kiểm tra cú pháp Python' if extension == 'py' else 'Đạt kiểm tra cú pháp JSON'})
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as error:
+        if isinstance(error, SyntaxError):
+            message = 'Dòng '+str(error.lineno)+': '+error.msg
+        else:
+            message = str(error)[:300] or 'Không phân tích được tệp'
+        findings.append({'path':path,'status':'failed','message':message})
+json.dump(findings, sys.stdout, ensure_ascii=True)
+'''
+
+
+def check_files(files):
+    """Check syntax in a short-lived interpreter; never execute generated code."""
+    try:
+        process = subprocess.run([sys.executable, '-I', '-c', SYNTAX_CHECKER],
+            input=json.dumps(files, ensure_ascii=True), capture_output=True,
+            text=True, encoding='utf-8', timeout=8)
+        findings = json.loads(process.stdout) if process.returncode == 0 else None
+        if not isinstance(findings, list) or len(findings) != len(files):
+            raise ValueError('Invalid checker output')
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return {'status':'unavailable', 'findings':[], 'checked':0, 'skipped':len(files),
+                'message':'Bộ kiểm tra không hoàn tất; chưa thể kết luận cú pháp'}
+    checked = sum(item['status'] != 'skipped' for item in findings)
+    failed = any(item['status'] == 'failed' for item in findings)
+    return {'status':'failed' if failed else 'passed' if checked else 'not_supported',
+            'findings':findings, 'checked':checked, 'skipped':len(files)-checked,
+            'message':'Chỉ kiểm tra cú pháp Python/JSON; chưa chạy chương trình, kiểm tra chức năng hay bảo mật'}
