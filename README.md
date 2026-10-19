@@ -314,3 +314,32 @@ API: `GET /api/tasks/{id}/checks` trả status, checked, skipped và findings.
 Các trạng thái gồm passed (chỉ các tệp được hỗ trợ), failed, not_supported
 (không có tệp được hỗ trợ), unavailable (không kiểm tra được). Kết quả kiểm
 tra được tính lại khi bấm nút; chưa lưu lịch sử báo cáo kiểm tra.
+
+
+## Cập nhật xử lý hủy, nhánh và mức kiểm chứng
+
+**Hủy Ollama:** dùng API streaming trong một tiến trình HTTP riêng do app
+quản lý. Khi hủy, app kết thúc tiến trình yêu cầu, đóng kết nối và giải
+phóng worker để lấy việc tiếp theo, kể cả lúc stream chưa có dòng hoàn
+chỉnh. Không chạy mã do mô hình sinh ra trong tiến trình đó. Đóng kết nối
+không phải bằng chứng máy chủ Ollama đã ngừng tính hoặc giải phóng GPU; còn
+phụ thuộc Ollama. OpenAI vẫn dùng lệnh gọi đồng bộ và chưa có hủy tức thì.
+
+**Cập nhật nhánh:** cap-nhat.bat hỗ trợ main và feat/bot-team-dashboard.
+Fetch rồi fast-forward từ nhánh origin tương ứng. Nếu nhánh feature bị xóa,
+chỉ tự chuyển main khi kiểm chứng được HEAD hiện tại là tổ tiên của
+origin/main. Trường hợp squash/rebase chưa chứng minh được bằng phép kiểm
+tra này thì dừng và giữ mã, không reset hay xóa nhánh để ép cập nhật.
+
+**JavaScript:** nếu có Node.js trên PATH, nút Kiểm tra cú pháp và vòng sửa
+sẽ dùng `node --check` cho .js/.mjs (module) và .cjs (CommonJS). Mã chỉ được
+phân tích, không thực thi, không cài npm hay nạp phụ thuộc dự án. Thiếu Node
+thì ghi rõ bỏ qua. HTML/CSS, JSX/TypeScript và kiểm thử chức năng vẫn chưa
+được hỗ trợ. Có thể cài Node.js LTS từ nodejs.org rồi mở lại app để bật kiểm
+tra JS. Kiểm tra cú pháp đạt không chứng minh DOM, CSS, import, tương tác,
+lưu trữ hay logic chương trình hoạt động.
+
+Nếu sản phẩm không có tệp nào được kiểm tra cú pháp độc lập, AI đánh giá đạt
+vẫn dừng ở Cần bạn xem. Nếu có kiểm tra, trạng thái ghi số tệp đã kiểm tra
+và bỏ qua, cùng giới hạn chưa kiểm thử chức năng. Người dùng có thể xem và
+chủ động duyệt; chưa có tự chạy test của sản phẩm trong sandbox.

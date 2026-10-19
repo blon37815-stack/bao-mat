@@ -16,11 +16,15 @@ from pathlib import Path
 from typing import TypedDict
 from artifacts import parse_files, zip_files, check_files
 from maintenance import ollama_health, backup_database
+from ollama_transport import request_completion, InferenceCancelled as TaskCancelled
 from langgraph.graph import StateGraph, START, END
 
 TASK_QUEUE = queue.Queue()
 WORKER_LOCK = threading.Lock()
 WORKER = None
+ACTIVE_LOCK = threading.Lock()
+ACTIVE_CANCEL = {}
+CALL_STATE = threading.local()
 CSRF_TOKEN = secrets.token_urlsafe(32)
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get('BOT_DB', str(ROOT / 'data' / 'tasks.sqlite3')))
@@ -141,10 +145,6 @@ def update(task_id, **fields):
         db.execute('UPDATE tasks SET ' + ','.join(k+'=?' for k in fields) + ' WHERE id=?', [*fields.values(), task_id])
 
 
-class TaskCancelled(Exception):
-    pass
-
-
 def worker_update(task_id, **fields):
     with connect() as db:
         changed = db.execute('UPDATE tasks SET ' + ','.join(k+'=?' for k in fields)
@@ -159,7 +159,8 @@ def task_action(task_id, action):
         if row is None:
             return 404, {'error':'Không tìm thấy nhiệm vụ'}
         if action == 'cancel':
-            changed = db.execute("UPDATE tasks SET status='cancelled', stage='Đã hủy; phản hồi đang tính sẽ bị bỏ qua' WHERE id=? AND status IN ('queued','running')", (task_id,)).rowcount
+            stage = 'Đã hủy việc đang chờ' if row['status']=='queued' else 'Đã hủy; đang đóng yêu cầu mô hình nếu có'
+            changed = db.execute("UPDATE tasks SET status='cancelled', stage=? WHERE id=? AND status IN ('queued','running')", (stage,task_id)).rowcount
         elif action == 'approve':
             if is_product(task_id):
                 try:
@@ -171,6 +172,11 @@ def task_action(task_id, action):
             changed = db.execute("UPDATE tasks SET status='approved', stage='Người dùng đã duyệt kết quả' WHERE id=? AND status IN ('completed','needs_review')", (task_id,)).rowcount
         else:
             return 404, {'error':'Không tìm thấy thao tác'}
+    if action == 'cancel' and changed:
+        with ACTIVE_LOCK:
+            event = ACTIVE_CANCEL.get(task_id)
+            if event:
+                event.set()
     return (200, {'id':task_id}) if changed else (409, {'error':'Trạng thái nhiệm vụ không cho phép thao tác này'})
 
 
@@ -187,6 +193,9 @@ class State(TypedDict, total=False):
     verdict: str
     source_files: list
     original_request: str
+    checks_status: str
+    checked_count: int
+    skipped_count: int
 
 
 def final_answer(text):
@@ -217,17 +226,9 @@ def public_task(row):
 
 def ollama_reply(messages):
     """Use the local Ollama HTTP API; no API key or cloud fallback."""
-    payload = {'model': os.environ.get('OLLAMA_MODEL', 'qwen3:4b'),
-               'messages': [dict(message, content=message['content'] + ('\n/no_think' if message['role'] == 'user' else '')) for message in messages], 'stream': False, 'think': False}
-    base = os.environ.get('OLLAMA_BASE_URL', 'http://127.0.0.1:11434').rstrip('/')
-    request = urllib.request.Request(base+'/api/chat',
-        data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'})
-    # Local inference may be slow on CPU. Do not send loopback through proxies.
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(request, timeout=600) as response:
-        content = json.load(response)['message']['content']
-    if not isinstance(content, str):
-        raise ValueError('Invalid Ollama response')
+    prepared = [dict(message, content=message['content'] + ('\n/no_think' if message['role'] == 'user' else '')) for message in messages]
+    content = request_completion(prepared, os.environ.get('OLLAMA_MODEL','qwen3:4b'),
+        os.environ.get('OLLAMA_BASE_URL','http://127.0.0.1:11434'), getattr(CALL_STATE,'cancel_event',None))
     content = final_answer(content)
     if not content:
         raise ValueError('Empty Ollama response')
@@ -265,6 +266,7 @@ def build_graph():
     graph = StateGraph(State)
     for key, role, instruction in ROLES:
         def step(state, key=key, role=role, instruction=instruction):
+            checks = None
             attempts = state.get('attempts', 0) + (1 if key == 'result' else 0)
             worker_update(state['id'], stage=role + (f' · lượt {attempts}/3' if key in ('result','review') else ''))
             if state['mode'] == 'demo':
@@ -315,6 +317,10 @@ def build_graph():
             if key == 'review' and state['mode'] != 'demo':
                 review = parse_review(output)
                 changes['verdict'] = 'unverified' if review is None else ('passed' if review['passed'] else 'revise')
+                if checks is not None:
+                    changes.update(checks_status=checks['status'], checked_count=checks.get('checked',0), skipped_count=checks.get('skipped',0))
+                    if changes['verdict'] == 'passed' and checks['status'] == 'not_supported':
+                        changes['verdict'] = 'manual'
             return changes
         graph.add_node(key, step)
     graph.add_edge(START, 'plan')
@@ -325,6 +331,10 @@ def build_graph():
 
 
 def run(task_id, prompt, mode):
+    event = threading.Event()
+    with ACTIVE_LOCK:
+        ACTIVE_CANCEL[task_id] = event
+    CALL_STATE.cancel_event = event
     try:
         worker_update(task_id, status='running')
         state = {'id':task_id, 'prompt':prompt, 'mode':mode, 'project_memory':task_context(task_id), 'product':is_product(task_id)}
@@ -335,11 +345,19 @@ def run(task_id, prompt, mode):
         if mode == 'demo':
             worker_update(task_id, status='completed', stage='Hoàn thành mô phỏng')
         elif result.get('verdict') == 'passed':
-            worker_update(task_id, status='completed', stage=f"AI đánh giá đạt · {result['attempts']} lượt · chưa xác minh bên ngoài")
+            detail = f" · cú pháp {result['checked_count']} tệp, bỏ qua {result['skipped_count']}" if 'checked_count' in result else ''
+            worker_update(task_id, status='completed', stage=f"AI đánh giá đạt · {result['attempts']} lượt{detail} · chưa kiểm thử chức năng")
         else:
-            stage = 'Kiểm tra sai định dạng; cần người xem' if result.get('verdict') == 'unverified' else 'Chưa đạt sau 2 lần sửa; cần người xem'
+            if result.get('verdict') == 'manual':
+                stage = 'Chỉ có AI đánh giá; chưa có kiểm tra cú pháp được hỗ trợ, cần bạn xem'
+            elif result.get('checks_status') == 'unavailable':
+                stage = 'Bộ kiểm tra không hoàn tất; cần bạn xem'
+            else:
+                stage = 'Kiểm tra sai định dạng; cần người xem' if result.get('verdict') == 'unverified' else 'Chưa đạt sau 2 lần sửa; cần người xem'
             worker_update(task_id, status='needs_review', stage=stage)
     except TaskCancelled:
+        with connect() as db:
+            db.execute("UPDATE tasks SET stage='Đã hủy · luồng xử lý đã dừng' WHERE id=? AND status='cancelled'", (task_id,))
         return
     except Exception:
         # Do not persist provider errors that might contain credentials or request data.
@@ -347,6 +365,11 @@ def run(task_id, prompt, mode):
             worker_update(task_id, status='failed', stage=('Không gọi được Ollama; kiểm tra ứng dụng Ollama đang chạy và đã tải mô hình' if mode == 'ollama' else 'Lỗi xử lý; kiểm tra cấu hình mô hình và kết nối'))
         except TaskCancelled:
             pass
+    finally:
+        with ACTIVE_LOCK:
+            if ACTIVE_CANCEL.get(task_id) is event:
+                ACTIVE_CANCEL.pop(task_id, None)
+        del CALL_STATE.cancel_event
 
 
 def work_loop():

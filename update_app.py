@@ -26,12 +26,29 @@ def main():
             print('Hay giu nguyen cac tep va gui ket qua nay de kiem tra. Khong tu reset/xoa.')
             return 1
         branch = git('branch', '--show-current').strip()
-        if branch != 'feat/bot-team-dashboard':
-            print('Dang o nhanh ' + (branch or 'detached HEAD') + '. Can nhanh feat/bot-team-dashboard.')
+        if branch not in ('feat/bot-team-dashboard','main'):
+            print('Dang o nhanh ' + (branch or 'detached HEAD') + '. Chi cap nhat main hoac feat/bot-team-dashboard.')
             return 1
         previous = requirements_hash()
         print('Dang tai cap nhat...', flush=True)
-        print(git('pull', '--ff-only'))
+        git('fetch', '--prune', 'origin')
+        remotes = git('for-each-ref', '--format=%(refname)', 'refs/remotes/origin').splitlines()
+        if 'refs/remotes/origin/'+branch not in remotes:
+            if branch != 'feat/bot-team-dashboard' or 'refs/remotes/origin/main' not in remotes:
+                print('Khong tim thay nhanh tuong ung tren origin. Khong thay doi tep.')
+                return 1
+            try:
+                git('merge-base', '--is-ancestor', 'HEAD', 'origin/main')
+            except subprocess.CalledProcessError:
+                print('Nhanh cu da bi xoa, nhung chua xac minh duoc commit hien tai nam trong main.')
+                print('Giu nguyen ma va lien he de kiem tra merge/squash; khong tu reset.')
+                return 1
+            if git('for-each-ref', '--format=%(refname)', 'refs/heads/main').strip():
+                git('switch', 'main')
+            else:
+                git('switch', '-c', 'main', '--track', 'origin/main')
+            branch = 'main'
+        print(git('merge', '--ff-only', 'origin/'+branch))
         if previous != requirements_hash():
             print('Thu vien da thay doi. Dang cap nhat thu vien...', flush=True)
             subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'],

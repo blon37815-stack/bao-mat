@@ -40,7 +40,7 @@ class ArtifactTest(unittest.TestCase):
             {'path':'bad.py','content':'return 1'},
             {'path':'good.json','content':'{"title":"Ghi chú"}'},
             {'path':'bad.json','content':'{"value":NaN}'},
-            {'path':'app.js','content':'not checked'}])
+            {'path':'app.css','content':'not checked'}])
         self.assertEqual(report['status'], 'failed')
         self.assertEqual(report['checked'], 4)
         self.assertEqual(report['skipped'], 1)
@@ -63,3 +63,23 @@ class ArtifactTest(unittest.TestCase):
         from artifacts import check_files
         with patch('artifacts.subprocess.run', side_effect=subprocess.TimeoutExpired('checker', 8)):
             self.assertEqual(check_files([{'path':'a.py','content':'pass'}])['status'], 'unavailable')
+
+    def test_javascript_check_is_optional_and_never_executes(self):
+        import shutil
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from artifacts import check_files
+        with patch('artifacts.shutil.which', return_value=None):
+            report = check_files([{'path':'app.js','content':'function broken( {'}])
+        self.assertEqual(report['status'], 'not_supported')
+        self.assertIn('Node.js', report['findings'][0]['message'])
+        if not shutil.which('node'):
+            self.skipTest('Node.js is not installed; optional path verified')
+        with tempfile.TemporaryDirectory() as temporary:
+            marker = Path(temporary)/'must-not-exist.txt'
+            content = 'require("fs").writeFileSync('+json.dumps(str(marker))+',"executed");'
+            report = check_files([{'path':'app.cjs','content':content}, {'path':'bad.mjs','content':'export const = ;'}])
+            self.assertEqual(report['status'], 'failed')
+            self.assertEqual([item['status'] for item in report['findings']], ['passed','failed'])
+            self.assertFalse(marker.exists())

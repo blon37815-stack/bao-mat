@@ -147,7 +147,7 @@ class WorkflowTest(unittest.TestCase):
         class OllamaStub(app.BaseHTTPRequestHandler):
             def do_POST(self):
                 requests.append((self.path, json.loads(self.rfile.read(int(self.headers['Content-Length'])))))
-                payload = json.dumps({'message': {'content': (json.dumps({'passed':True,'issues':[]}) if len(requests)==3 else 'Kết quả local ' + str(len(requests)))}}).encode()
+                payload = (json.dumps({'message': {'content': (json.dumps({'passed':True,'issues':[]}) if len(requests)==3 else 'Kết quả local ' + str(len(requests)))}, 'done':True})+'\n').encode()
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(payload)
@@ -162,7 +162,7 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(requests[0][0], '/api/chat')
             self.assertEqual(requests[0][1]['model'], 'qwen3:4b')
             self.assertFalse(requests[0][1]['think'])
-            self.assertFalse(requests[0][1]['stream'])
+            self.assertTrue(requests[0][1]['stream'])
             self.assertIn('Kết quả local 1', requests[1][1]['messages'][1]['content'])
             self.assertIn('Kết quả local 2', requests[2][1]['messages'][1]['content'])
         finally:
@@ -465,6 +465,53 @@ class WorkflowTest(unittest.TestCase):
         with patch.object(app, 'ollama_reply', side_effect=['Kế hoạch',product,'{"passed":true,"issues":[]}']), patch.object(app, 'check_files', return_value={'status':'unavailable'}):
             app.run('test','Tạo Python','ollama')
         self.assertEqual(self.row()['status'], 'needs_review')
+
+    def test_cancel_stalled_stream_releases_queue_for_next_task(self):
+        import threading, time
+        entered, release = threading.Event(), threading.Event()
+        class StalledOllama(app.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers['Content-Length']))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"message":')
+                self.wfile.flush()
+                entered.set()
+                release.wait(8)
+        server = app.ThreadingHTTPServer(('127.0.0.1',0), StalledOllama)
+        helper = threading.Thread(target=server.serve_forever,daemon=True)
+        helper.start()
+        with app.connect() as db:
+            db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', ('next','Next','demo','queued','','{}','now'))
+        try:
+            with patch.dict(app.os.environ, {'OLLAMA_BASE_URL':'http://127.0.0.1:'+str(server.server_port)}):
+                app.enqueue_task('test','Will hang','ollama')
+                self.assertTrue(entered.wait(3))
+                app.enqueue_task('next','Next','demo')
+                start = time.monotonic()
+                self.assertEqual(app.task_action('test','cancel')[0], 200)
+                while time.monotonic()-start < 3:
+                    with app.connect() as db:
+                        status = db.execute('SELECT status FROM tasks WHERE id=?',('next',)).fetchone()[0]
+                    if status == 'completed':
+                        break
+                    time.sleep(.02)
+                self.assertEqual(status, 'completed')
+                self.assertEqual(self.row()['status'], 'cancelled')
+                self.assertEqual(self.row()['output'], '{}')
+        finally:
+            release.set()
+            app.TASK_QUEUE.join()
+            server.shutdown(); server.server_close(); helper.join()
+
+    def test_unsupported_product_is_not_marked_completed_by_ai_alone(self):
+        with app.connect() as db:
+            db.execute('INSERT INTO task_products VALUES (?,1)', ('test',))
+        product = json.dumps({'files':[{'path':'index.html','content':'<html></html>'}]})
+        with patch.object(app, 'ollama_reply', side_effect=['Plan', product, '{"passed":true,"issues":[]}']):
+            app.run('test','Build HTML','ollama')
+        self.assertEqual(self.row()['status'], 'needs_review')
+        self.assertIn('Chỉ có AI', self.row()['stage'])
 
 if __name__ == '__main__':
     unittest.main()

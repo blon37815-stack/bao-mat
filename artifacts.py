@@ -4,6 +4,8 @@ import json
 import re
 import subprocess
 import sys
+import shutil
+import time
 import unicodedata
 import zipfile
 
@@ -92,6 +94,7 @@ json.dump(findings, sys.stdout, ensure_ascii=True)
 
 def check_files(files):
     """Check syntax in a short-lived interpreter; never execute generated code."""
+    deadline = time.monotonic()+8
     try:
         process = subprocess.run([sys.executable, '-I', '-c', SYNTAX_CHECKER],
             input=json.dumps(files, ensure_ascii=True), capture_output=True,
@@ -102,8 +105,28 @@ def check_files(files):
     except (subprocess.TimeoutExpired, OSError, ValueError):
         return {'status':'unavailable', 'findings':[], 'checked':0, 'skipped':len(files),
                 'message':'Bộ kiểm tra không hoàn tất; chưa thể kết luận cú pháp'}
-    checked = sum(item['status'] != 'skipped' for item in findings)
+    node = shutil.which('node')
+    for file, finding in zip(files, findings):
+        extension = file['path'].rsplit('.', 1)[-1].lower()
+        if extension not in ('js','mjs','cjs'):
+            continue
+        if node is None:
+            finding['message'] = 'Chưa kiểm tra JavaScript: máy chưa có Node.js'
+            continue
+        try:
+            remaining = deadline-time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired('node', 8)
+            mode = 'commonjs' if extension == 'cjs' else 'module'
+            process = subprocess.run([node,'--check','--input-type='+mode], input=file['content'],
+                capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=min(3,remaining))
+            finding.update(status='passed' if process.returncode == 0 else 'failed',
+                message='Đạt cú pháp JavaScript ('+mode+')' if process.returncode == 0 else process.stderr.strip()[:800] or 'Lỗi cú pháp JavaScript')
+        except (subprocess.TimeoutExpired, OSError):
+            finding.update(status='unavailable', message='Không hoàn tất kiểm tra JavaScript')
+    checked = sum(item['status'] in ('passed','failed') for item in findings)
     failed = any(item['status'] == 'failed' for item in findings)
-    return {'status':'failed' if failed else 'passed' if checked else 'not_supported',
+    unavailable = any(item['status'] == 'unavailable' for item in findings)
+    return {'status':'failed' if failed else 'unavailable' if unavailable else 'passed' if checked else 'not_supported',
             'findings':findings, 'checked':checked, 'skipped':len(files)-checked,
-            'message':'Chỉ kiểm tra cú pháp Python/JSON; chưa chạy chương trình, kiểm tra chức năng hay bảo mật'}
+            'message':'Chỉ kiểm tra cú pháp Python/JSON/JavaScript (nếu có Node.js); chưa kiểm thử chức năng, HTML/CSS hay bảo mật'}

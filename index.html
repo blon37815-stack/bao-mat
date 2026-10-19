@@ -35,7 +35,7 @@ async function viewChecks(id){
  document.querySelector('#file-list').replaceChildren();document.querySelector('#download-file').hidden=true;
  const names={passed:'Đạt cú pháp ở các tệp được hỗ trợ',failed:'Phát hiện lỗi cú pháp',not_supported:'Chưa hỗ trợ kiểm tra các loại tệp này',unavailable:'Chưa kiểm tra được'};
  document.querySelector('#file-notice').textContent=(names[data.status]||data.status)+' · Đã kiểm tra: '+data.checked+' · Bỏ qua: '+data.skipped;
- document.querySelector('#file-content').textContent=data.message+'\n\n'+data.findings.map(item=>item.path+' · '+({passed:'Đạt',failed:'Lỗi',skipped:'Bỏ qua'})[item.status]+'\n'+item.message).join('\n\n');document.querySelector('#file-dialog').showModal();
+ document.querySelector('#file-content').textContent=data.message+'\n\n'+data.findings.map(item=>item.path+' · '+({passed:'Đạt',failed:'Lỗi',skipped:'Bỏ qua',unavailable:'Chưa kiểm tra được'})[item.status]+'\n'+item.message).join('\n\n');document.querySelector('#file-dialog').showModal();
  }catch(e){document.querySelector('#error').textContent=e.message}
 }
 const templates={
@@ -71,7 +71,7 @@ async function loadMemory(){try{const response=await apiFetch('/api/memory');if(
 document.querySelector('#memory-form').onsubmit=async event=>{event.preventDefault();const button=document.querySelector('#save-memory');button.disabled=true;try{const response=await apiFetch('/api/memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:memoryField.value})});if(!response.ok)throw Error('Chưa lưu được bộ nhớ');memoryStatus.textContent='Đã lưu. Nhiệm vụ mới sẽ dùng bộ nhớ này.'}catch(e){memoryStatus.textContent=e.message}finally{button.disabled=false}};
 loadMemory();
 async function taskAction(id,action,button){
- const message=action==='cancel'?'Hủy nhiệm vụ? Phản hồi đang được tính sẽ bị bỏ qua; Ollama có thể vẫn tính cho đến khi yêu cầu kết thúc.':'Bạn đã xem và chấp nhận kết quả này? Việc duyệt không chạy hay triển khai mã.';
+ const message=action==='cancel'?'Hủy nhiệm vụ? Ứng dụng sẽ đóng luồng Ollama và chuyển sang việc tiếp theo. Việc dừng tính bên trong máy chủ phụ thuộc Ollama. OpenAI hiện vẫn chờ yêu cầu kết thúc.':'Bạn đã xem và chấp nhận kết quả này? Việc duyệt không chạy hay triển khai mã.';
  if(!confirm(message))return;
  button.disabled=true;
  try{const response=await apiFetch('/api/tasks/'+id+'/'+action,{method:'POST'});const data=await response.json();if(!response.ok)throw Error(data.error);await refresh()}catch(e){document.querySelector('#error').textContent=e.message}finally{button.disabled=false}
