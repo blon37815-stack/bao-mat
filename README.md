@@ -432,3 +432,15 @@ và bắt buộc ở máy chủ, kể cả client cũ gửi product=false. Muố
 bản, chọn Tự nhập yêu cầu hoặc mẫu Lập kế hoạch. Trước nút giao việc và trên
 thẻ nhiệm vụ đều có nhãn loại kết quả. Nhiệm vụ văn bản chỉ xuất báo cáo .md,
 không có ZIP; việc cũ không tự chuyển thành nhiệm vụ sản phẩm sau cập nhật.
+
+Báo cáo sản phẩm ghi rõ khi nhiệm vụ chưa có bộ tiêu chí mẫu. Nhiệm vụ
+chỉnh sửa kế thừa cấu trúc cũ và tiêu chí cũ nếu có; không tự biến thành mẫu
+mới chỉ vì nhập tên mẫu trong yêu cầu. Khi cần mẫu có files bắt buộc, tạo
+nhiệm vụ độc lập bằng dropdown. Giao diện nhắc điều này khi chọn bản gốc.
+
+Bot kiểm tra nhận bản result mới nhất, chính sách cho phép README.md và
+bộ tiêu chí đã lưu. Không đưa nhận xét vòng trước vào prompt của chính bot
+kiểm tra; bot thực hiện vẫn nhận nhận xét đó để sửa. Đây là hướng dẫn mô
+hình, chưa phải bảo đảm loại bỏ mọi nhận xét sai; kiểm tra xác định vẫn giữ
+vai trò phát hiện thiếu tệp/cú pháp/schema độc lập. Trạng thái needs_review
+trong báo cáo được mô tả là luồng đã dừng cần người xem.

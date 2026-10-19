@@ -522,5 +522,26 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(self.row()['status'], 'needs_review')
         self.assertIn('Chỉ có AI', self.row()['stage'])
 
+    def test_reviewer_gets_latest_result_and_readme_policy_not_its_old_verdict(self):
+        responses=['Plan','Old result','{"passed":false,"issues":["Old mistake"]}','New result','{"passed":true,"issues":[]}']
+        with patch.object(app,'ollama_reply',side_effect=responses) as model:
+            app.run('test','Sửa dữ liệu JSON','ollama')
+        repair=json.loads(model.call_args_list[3].args[0][1]['content'])
+        self.assertIn('Old mistake',repair['review'])
+        review=json.loads(model.call_args_list[4].args[0][1]['content'])
+        self.assertNotIn('review',review)
+        self.assertEqual(review['result'],'New result')
+        self.assertIn('README.md được phép',review['file_policy'])
+
+    def test_review_report_describes_stopped_run_and_missing_template(self):
+        app.update('test',status='needs_review',mode='ollama',output=json.dumps({'result':'Result'}))
+        with app.connect() as db:
+            db.execute('INSERT INTO task_products VALUES (?,1)',('test',))
+        status,report=app.export_task('test','all')
+        self.assertEqual(status,200)
+        self.assertIn('Luồng đã dừng',report.decode())
+        self.assertIn('Chưa gắn mẫu',report.decode())
+        self.assertNotIn('luồng chưa hoàn thành',report.decode())
+
 if __name__ == '__main__':
     unittest.main()
