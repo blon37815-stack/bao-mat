@@ -11,7 +11,7 @@ import urllib.request
 import urllib.parse
 import difflib
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TypedDict
@@ -19,6 +19,7 @@ from artifacts import parse_files, zip_files, check_files
 from maintenance import ollama_health, backup_database
 from ollama_transport import request_completion, InferenceCancelled as TaskCancelled
 from task_requirements import template_requirements, check_requirements
+from data_cleanup import cleanup_plan, apply_cleanup
 from langgraph.graph import StateGraph, START, END
 
 class TaskQueue(queue.Queue):
@@ -72,6 +73,8 @@ WORKER = None
 ACTIVE_LOCK = threading.Lock()
 ACTIVE_CANCEL = {}
 CALL_STATE = threading.local()
+CLEANUP_LOCK = threading.Lock()
+CLEANUP_PREVIEWS = {}
 CSRF_TOKEN = secrets.token_urlsafe(32)
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.environ.get('BOT_DB', str(ROOT / 'data' / 'tasks.sqlite3')))
@@ -104,6 +107,7 @@ def connect():
     db.execute("CREATE TABLE IF NOT EXISTS task_steps (id INTEGER PRIMARY KEY, task_id TEXT NOT NULL, role TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, status TEXT NOT NULL, output TEXT NOT NULL DEFAULT '')")
     db.execute('CREATE INDEX IF NOT EXISTS task_steps_by_task ON task_steps(task_id,id)')
     db.execute('CREATE TABLE IF NOT EXISTS task_requirements (task_id TEXT PRIMARY KEY, spec TEXT NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS task_step_cleanup (step_id INTEGER PRIMARY KEY, cleared_at TEXT NOT NULL)')
     return db
 
 
@@ -236,6 +240,67 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def preview_cleanup(scope, days):
+    if type(days) is not int or not 1 <= days <= 3650:
+        return 400, {'error':'Chọn số ngày từ 1 đến 3650'}
+    cutoff = (datetime.now(timezone.utc)-timedelta(days=days)).isoformat()
+    with connect() as db:
+        try:
+            plan = cleanup_plan(db,scope,cutoff)
+        except ValueError:
+            return 400, {'error':'Loại dọn dữ liệu không hợp lệ'}
+    token = secrets.token_urlsafe(24)
+    with CLEANUP_LOCK:
+        now = time.monotonic()
+        for old in list(CLEANUP_PREVIEWS):
+            if now-CLEANUP_PREVIEWS[old]['created']>300:
+                CLEANUP_PREVIEWS.pop(old,None)
+        if len(CLEANUP_PREVIEWS)>=20:
+            CLEANUP_PREVIEWS.pop(next(iter(CLEANUP_PREVIEWS)))
+        CLEANUP_PREVIEWS[token] = {'created':now,'plan':plan}
+    return 200, {key:value for key,value in plan.items() if key not in ('ids','fingerprint')} | {'token':token,'expires_seconds':300}
+
+
+def perform_cleanup(token, confirmation):
+    if not isinstance(token,str) or confirmation!='DỌN':
+        return 400, {'error':'Cần xem trước và nhập chính xác DỌN để xác nhận'}
+    with CLEANUP_LOCK:
+        preview = CLEANUP_PREVIEWS.get(token)
+    if preview is None or time.monotonic()-preview['created']>300:
+        return 409, {'error':'Bản xem trước đã hết hạn; hãy xem trước lại'}
+    with ADMISSION_LOCK:
+        with ACTIVE_LOCK:
+            busy = bool(ACTIVE_CANCEL)
+        if busy or TASK_QUEUE.qsize():
+            return 409, {'error':'Hãy hoàn tất hoặc hủy các việc đang chạy/chờ trước khi dọn'}
+        with connect() as db:
+            if db.execute("SELECT COUNT(*) FROM tasks WHERE status IN ('queued','running')").fetchone()[0]:
+                return 409, {'error':'Vẫn còn nhiệm vụ đang xử lý; chưa dọn dữ liệu'}
+            current = cleanup_plan(db,preview['plan']['scope'],preview['plan']['cutoff'])
+            if current['fingerprint']!=preview['plan']['fingerprint']:
+                return 409, {'error':'Dữ liệu đã thay đổi; hãy xem trước lại'}
+            if not current['items']:
+                return 409, {'error':'Không có dữ liệu phù hợp để dọn'}
+            payload = backup_database(db)
+        directory = DB.parent/'backups'
+        directory.mkdir(parents=True,exist_ok=True)
+        filename = 'cleanup-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:12]+'.zip'
+        with (directory/filename).open('xb') as saved:
+            saved.write(payload)
+            saved.flush()
+            os.fsync(saved.fileno())
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            try:
+                result = apply_cleanup(db,preview['plan'],utc_now())
+            except ValueError:
+                return 409, {'error':'Dữ liệu đã thay đổi; chưa xóa gì. Hãy xem trước lại','backup_file':filename}
+        with CLEANUP_LOCK:
+            CLEANUP_PREVIEWS.pop(token,None)
+    return 200, {'items':result['items'],'tasks':result['tasks'],'backup_file':filename,
+                 'message':'Đã dọn. SQLite có thể giữ kích thước tệp để tái sử dụng, chưa thu nhỏ tệp ngay.'}
+
+
 def tracked_step(step, role_key):
     def invoke(state):
         attempt = state.get('attempts',0)+(1 if role_key=='result' else 0)
@@ -265,7 +330,7 @@ def task_history(task_id):
         task = db.execute('SELECT id FROM tasks WHERE id=?',(task_id,)).fetchone()
         if task is None:
             return 404, {'error':'Không tìm thấy nhiệm vụ'}
-        rows = db.execute('SELECT * FROM task_steps WHERE task_id=? ORDER BY id',(task_id,)).fetchall()
+        rows = db.execute('SELECT s.*, c.cleared_at FROM task_steps s LEFT JOIN task_step_cleanup c ON c.step_id=s.id WHERE s.task_id=? ORDER BY s.id',(task_id,)).fetchall()
         timing = db.execute('SELECT started_at,finished_at FROM task_timing WHERE task_id=?',(task_id,)).fetchone()
     steps = [dict(row) for row in rows]
     for item in steps:
@@ -670,6 +735,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(200, result)
         if self.path == '/api/session':
             return self.respond(200, {'token':CSRF_TOKEN})
+        if self.path.startswith('/api/backups/'):
+            filename = self.path.removeprefix('/api/backups/')
+            if not re.fullmatch(r'cleanup-[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}\.zip',filename):
+                return self.respond(404, {'error':'Không tìm thấy bản sao lưu'})
+            file = DB.parent/'backups'/filename
+            if not file.is_file():
+                return self.respond(404, {'error':'Không tìm thấy bản sao lưu'})
+            payload = file.read_bytes()
+            self.send_response(200)
+            self.send_header('Content-Type','application/zip')
+            self.send_header('Content-Disposition','attachment; filename="'+filename+'"')
+            self.send_header('Content-Length',str(len(payload)))
+            self.end_headers();self.wfile.write(payload)
+            return
         if self.path == '/':
             return self.respond(200, (ROOT/'index.html').read_bytes(), 'text/html; charset=utf-8')
         if self.path in ('/app.js','/styles.css'):
@@ -767,6 +846,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed_request(writing=True):
             return
+        if self.path in ('/api/cleanup/preview','/api/cleanup/apply'):
+            try:
+                length = int(self.headers.get('Content-Length','0'))
+                if not 0 < length <= 1000:
+                    raise ValueError()
+                data = json.loads(self.rfile.read(length))
+                if not isinstance(data,dict):
+                    raise ValueError()
+            except (ValueError,TypeError):
+                return self.respond(400, {'error':'Dữ liệu dọn không hợp lệ'})
+            if self.path.endswith('/preview'):
+                status,result = preview_cleanup(data.get('scope'),data.get('days'))
+            else:
+                try:
+                    status,result = perform_cleanup(data.get('token'),data.get('confirmation'))
+                except (OSError,sqlite3.Error):
+                    return self.respond(503, {'error':'Chưa hoàn tất dọn dữ liệu; kiểm tra dung lượng đĩa và quyền ghi, rồi xem trước lại'})
+            return self.respond(status,result)
         if self.path == '/api/queue':
             try:
                 length = int(self.headers.get('Content-Length','0'))

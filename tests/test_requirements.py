@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import app
-from task_requirements import check_requirements, template_requirements
+from task_requirements import check_requirements, template_requirements, check_web_links
 
 
 def data_product():
@@ -13,6 +13,28 @@ def data_product():
 
 
 class RequirementTest(unittest.TestCase):
+    def test_web_requires_real_links_to_bundled_styles_and_script(self):
+        valid='<link rel="alternate stylesheet" href="./style.css?v=1"><script defer src="./app.js#main"></script>'
+        self.assertEqual(check_web_links(valid),[])
+        files=[{'path':path,'content':valid if path=='index.html' else ''} for path in template_requirements('web')['required_files']]
+        self.assertEqual(check_requirements(files,template_requirements('web')),[])
+        files[0]['content']='<!-- '+valid+' --> <p>style.css and app.js</p>'
+        self.assertEqual(len(check_requirements(files,template_requirements('web'))),2)
+
+    def test_web_rejects_wrong_external_or_nonexecuting_links(self):
+        bad=[
+            '<link rel="stylesheet" href="other.css"><script src="other.js"></script>',
+            '<base href="https://elsewhere.example/"><link rel="stylesheet" href="style.css"><script src="app.js"></script>',
+            '<link rel="stylesheet" href="https://elsewhere.example/style.css"><script src="https://elsewhere.example/app.js"></script>',
+            '<link rel="stylesheet" href="missing.css" href="style.css"><script src="missing.js" src="app.js"></script>',
+            '<link rel="stylesheet" href=""><script type="text/plain" src="app.js"></script>',
+            '<base href="http://[invalid"><link rel="stylesheet" href="style.css">',
+        ]
+        for html in bad:
+            with self.subTest(html=html):
+                self.assertTrue(check_web_links(html))
+        self.assertEqual(check_web_links('<base href="./"><LINK REL="STYLESHEET" HREF="style.css"><script type="module" src="app.js"></script>'),[])
+
     def test_readme_instructions_do_not_replace_actual_json_files(self):
         issues=check_requirements([{'path':'README.md','content':'Run Python to create notes.json and config.json'}],template_requirements('data'))
         self.assertEqual(len(issues),2)

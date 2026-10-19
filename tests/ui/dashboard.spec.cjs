@@ -99,3 +99,38 @@ test('desktop and mobile layouts have no horizontal overflow or script errors', 
   expect(overflow).toBe(false);
   expect(errors).toEqual([]);
 });
+
+test('cleanup previews, requires typed confirmation, preserves final output and downloads backup', async ({page}) => {
+  await page.getByText('Kết nối và dữ liệu',{exact:true}).click();
+  await page.locator('#preview-cleanup').click();
+  await expect(page.locator('#cleanup-summary')).toContainText('1 nội dung lượt');
+  await expect(page.locator('#cleanup-examples')).toContainText('cleanup-fixture');
+  await expect(page.locator('#apply-cleanup')).toBeDisabled();
+  await page.locator('#cleanup-confirmation').fill('DON');
+  await expect(page.locator('#apply-cleanup')).toBeDisabled();
+  await page.locator('#cleanup-confirmation').fill('DỌN');
+  await page.locator('#apply-cleanup').click();
+  await expect(page.locator('#cleanup-status')).toContainText('Đã dọn 1 mục');
+  const download=page.waitForEvent('download');
+  await page.locator('#cleanup-backup').click();
+  expect((await download).suggestedFilename()).toMatch(/^cleanup-.*\.zip$/);
+  await page.locator('#search').fill('cleanup-fixture');
+  const card=page.locator('#tasks article').filter({hasText:'Nhiệm vụ cũ để kiểm thử dọn'});
+  await card.locator('summary').click();
+  await expect(card).toContainText('Kết quả cuối cần giữ');
+  await card.getByRole('button',{name:'Lịch sử từng bước'}).click();
+  await expect(page.locator('#file-content')).toContainText('Nội dung lượt này đã được dọn');
+  await page.locator('#close-files').click();
+  await page.locator('#cleanup-scope').selectOption('tasks');
+  await page.locator('#preview-cleanup').click();
+  await expect(page.locator('#cleanup-summary')).toContainText('1 nhiệm vụ');
+  await page.locator('#cleanup-confirmation').fill('DỌN');
+  await page.locator('#cleanup-days').fill('60');
+  await expect(page.locator('#apply-cleanup')).toBeDisabled();
+  await expect(page.locator('#cleanup-preview')).toBeHidden();
+  await page.locator('#preview-cleanup').click();
+  await page.locator('#cleanup-confirmation').fill('DỌN');
+  await page.locator('#apply-cleanup').click();
+  await expect(page.locator('#cleanup-status')).toContainText('Đã dọn 1 mục');
+  await expect(card).toHaveCount(0);
+});

@@ -323,6 +323,20 @@ chỉnh. Không chạy mã do mô hình sinh ra trong tiến trình đó. Đóng
 không phải bằng chứng máy chủ Ollama đã ngừng tính hoặc giải phóng GPU; còn
 phụ thuộc Ollama. OpenAI vẫn dùng lệnh gọi đồng bộ và chưa có hủy tức thì.
 
+Mỗi lần gọi Ollama có thời hạn tổng mặc định 600 giây, kể cả khi stream vẫn
+đang gửi dữ liệu. Có thể đặt `OLLAMA_TIMEOUT_SECONDS` từ 1 đến 7200 giây;
+giá trị sai sẽ làm yêu cầu thất bại, không tự bỏ giới hạn. Trên PowerShell,
+đặt trước khi mở app trong cùng cửa sổ (chỉ áp dụng cho phiên đó):
+
+```powershell
+$env:OLLAMA_TIMEOUT_SECONDS = '1200'
+.\chay.bat
+```
+
+Thời hạn áp dụng cho từng lượt gọi mô hình, không phải toàn bộ nhiệm vụ.
+Tăng giới hạn cho máy chậm; nút Hủy vẫn hoạt động trong khi chờ Ollama.
+Biến này không thay đổi thời hạn OpenAI hoặc bộ kiểm tra cú pháp.
+
 **Cập nhật nhánh:** cap-nhat.bat hỗ trợ main và feat/bot-team-dashboard.
 Fetch rồi fast-forward từ nhánh origin tương ứng. Nếu nhánh feature bị xóa,
 chỉ tự chuyển main khi kiểm chứng được HEAD hiện tại là tổ tiên của
@@ -393,6 +407,7 @@ npm ci --prefix tests/ui
 cd tests/ui
 npx playwright install chromium
 npm test
+npm run format:check
 ```
 
 Config mặc định dùng Python trong .venv. Có thể đặt BAO_TEST_PYTHON thành
@@ -401,6 +416,9 @@ PLAYWRIGHT_EXECUTABLE_PATH thành đường dẫn trình duyệt để không t�
 Máy chủ kiểm thử dùng SQLite tạm ở cổng 8989, không dùng dữ liệu app của bạn.
 Dùng chế độ mô phỏng để kiểm tra giao việc, lịch sử, tải tệp và các thao tác
 trình duyệt; các kiểm thử mô hình thật vẫn là kiểm tra riêng.
+`npm run format` định dạng app.js, index.html và styles.css bằng Prettier
+đã ghim phiên bản; CI kiểm tra định dạng cùng kiểm thử. Node/Prettier chỉ
+dành cho phát triển, không cần để chạy dashboard trên Windows.
 
 ## Tiêu chí nghiệm thu của mẫu sản phẩm
 
@@ -413,8 +431,13 @@ id duy nhất (chuỗi/số nguyên), title/content không rỗng và created_at
 phép. Nếu muốn cấu trúc khác, chọn tự nhập yêu cầu để tạo nhiệm vụ độc lập.
 
 Mẫu web bắt buộc index.html, style.css, app.js, README.md; mẫu Python bắt
-buộc main.py, tests/test_main.py, README.md. Đây là kiểm tra sự hiện diện và
-cú pháp hỗ trợ, chưa thực thi hoặc chứng minh chức năng. Các lỗi tiêu chí
+buộc main.py, tests/test_main.py, README.md. Mẫu web còn đọc thẻ HTML để
+kiểm tra index.html liên kết style.css bằng link rel=stylesheet và tải
+app.js bằng script src. Chấp nhận đường dẫn tương đối cùng bộ tệp và query/
+fragment; chữ trong chú thích, URL ngoài, base trỏ ra ngoài hoặc script
+type=text/plain không được tính là liên kết hợp lệ. Đây là kiểm tra tĩnh
+về sự hiện diện, liên kết và cú pháp hỗ trợ, chưa thực thi hoặc chứng minh
+DOM, CSS hay tính năng ghi chú hoạt động. Các lỗi tiêu chí
 được đưa vào vòng sửa ngay cả khi mô hình tự đánh giá đạt. Thiếu tiêu chí
 sau hai lần sửa thì dừng cần người xem và không cho duyệt như sản phẩm đủ.
 
@@ -432,6 +455,51 @@ và bắt buộc ở máy chủ, kể cả client cũ gửi product=false. Muố
 bản, chọn Tự nhập yêu cầu hoặc mẫu Lập kế hoạch. Trước nút giao việc và trên
 thẻ nhiệm vụ đều có nhãn loại kết quả. Nhiệm vụ văn bản chỉ xuất báo cáo .md,
 không có ZIP; việc cũ không tự chuyển thành nhiệm vụ sản phẩm sau cập nhật.
+
+## Dọn dữ liệu có xem trước
+
+Mở **Kết nối và dữ liệu → Dọn dữ liệu cũ**, chọn phạm vi và số ngày muốn
+giữ (1–3650, mặc định 30), rồi bấm **Xem trước dữ liệu sẽ dọn**. Xem số mục,
+số nhiệm vụ và tối đa 5 ví dụ; chưa có thao tác xóa ở bước này. Bản xem
+trước hết hạn sau 5 phút, đổi lựa chọn phải xem trước lại. Nhập đúng `DỌN`
+và bấm **Lưu bản sao và dọn** mới thực hiện.
+
+- **Nội dung lịch sử từng lượt:** bỏ nội dung trong task_steps của nhiệm vụ
+  đã kết thúc trước mốc chọn; giữ thời gian, trạng thái, kết quả cuối, sản
+  phẩm, bộ nhớ lúc giao việc và liên kết phiên bản. Lịch sử ghi rõ lượt đã
+  dọn; không hiện như thể bot chưa tạo kết quả.
+- **Toàn bộ nhiệm vụ cũ độc lập:** xóa nhiệm vụ cùng lịch sử và dữ liệu
+  riêng đi kèm. Giữ cả hai đầu của mọi liên kết phiên bản/chạy lại để không
+  làm đứt chuỗi. Bộ nhớ dự án chung luôn được giữ.
+
+Mốc tuổi tính theo thời điểm kết thúc, hoặc thời điểm tạo nếu dữ liệu cũ
+chưa có thời gian kết thúc. Việc đang chạy/chờ luôn được giữ; thao tác dọn
+bị từ chối nếu còn việc đang chạy/chờ hoặc kết nối Ollama đã hủy chưa đóng.
+Dữ liệu đổi sau khi xem trước cũng khiến thao tác bị từ chối, cần xem lại.
+
+Trước mỗi lần dọn, app ghi bản ZIP nhất quán vào **data/backups/** (hoặc
+backups cạnh BOT_DB tùy chỉnh), hoàn tất ghi xuống đĩa rồi mới xóa trong
+giao dịch SQLite. Không ghi được bản sao thì không dọn. Sau khi dọn có link
+tải bản sao; cách khôi phục như phần sao lưu ở trên. Thư mục backups được
+loại khỏi Git; bản sao vẫn có thể chứa dữ liệu riêng tư đã xóa trong app.
+
+Số KiB xem trước chỉ ước lượng nội dung chính, không phải dung lượng đĩa
+sẽ giảm. SQLite giữ trang trống để tái sử dụng; app không tự VACUUM. Bản
+sao trước khi dọn cũng chiếm dung lượng và không bị tự xóa. Sau khi kiểm
+tra dữ liệu/khôi phục, bạn tự quản lý các ZIP cũ nếu cần lấy lại chỗ trống.
+Không có lịch tự dọn và không tự xóa dữ liệu khi mở app/cập nhật.
+
+API dọn dùng token phiên và JSON như các thao tác ghi khác:
+`POST /api/cleanup/preview` nhận scope (history/tasks), days;
+`POST /api/cleanup/apply` nhận token xem trước và confirmation="DỌN".
+`GET /api/backups/<tên ZIP>` chỉ tải tên bản sao do app sinh, không duyệt
+thư mục hoặc nhận đường dẫn tùy ý.
+
+Trước khi gộp PR, vẫn cần thử Windows với Ollama thật (hủy, tạm dừng/giao
+hai việc, tải ZIP và bản sao), đồng thời xác nhận CI Windows/Ubuntu xanh.
+Chọn **Create a merge commit** để updater kiểm chứng được quan hệ tổ tiên
+khi chuyển nhánh feature sang main. Kiểm thử trong Docker với network none
+vẫn là bước phát triển tiếp theo, chưa được bật trong bản này.
 
 Báo cáo sản phẩm ghi rõ khi nhiệm vụ chưa có bộ tiêu chí mẫu. Nhiệm vụ
 chỉnh sửa kế thừa cấu trúc cũ và tiêu chí cũ nếu có; không tự biến thành mẫu

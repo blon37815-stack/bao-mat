@@ -31,6 +31,8 @@ jobs:
           cache-dependency-path: tests/ui/package-lock.json
       - name: Install browser test dependencies
         run: npm ci --prefix tests/ui
+      - name: Check dashboard formatting
+        run: npm run format:check --prefix tests/ui
       - name: Install Chromium
         working-directory: tests/ui
         run: npx playwright install --with-deps chromium

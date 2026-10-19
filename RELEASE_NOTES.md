@@ -1,4 +1,23 @@
-# Đợt nâng cấp sử dụng hằng ngày
+# Đợt ổn định web, thời hạn và dữ liệu
+
+- Mẫu web kiểm tra liên kết HTML thực tới style.css/app.js; không tính chữ
+  trong chú thích hoặc liên kết ngoài. Đây vẫn là kiểm tra tĩnh.
+- OLLAMA_TIMEOUT_SECONDS đặt thời hạn tổng mỗi lượt, mặc định 600, phạm vi
+  1–7200 giây. Hủy vẫn giải phóng tiến trình HTTP do app quản lý.
+- Dọn nội dung lịch sử hoặc nhiệm vụ cũ độc lập: xem trước, nhập DỌN, tự
+  lưu ZIP trước khi xóa; giữ phiên bản/chạy lại và bộ nhớ chung. Không tự
+  dọn theo lịch; chưa thu nhỏ tệp SQLite, bản sao vẫn chiếm dung lượng.
+- App.js, HTML và CSS được định dạng; bổ sung Prettier chỉ cho phát triển,
+  có kiểm tra định dạng trên CI. Người dùng Windows không cần cài Node.
+
+Kiểm chứng cục bộ: 80 unittest Python và 6 luồng Chromium trên Linux với
+SQLite tạm. Có thử thời hạn bằng máy chủ streaming giả lập; chưa chạy
+suy luận Ollama thật. Chưa xác nhận CI Windows/Ubuntu xanh hoặc CPU Ollama
+giảm trên Windows sau hủy; chưa gộp PR. Khi gộp chọn Create a merge commit.
+Chưa có chạy mã sản phẩm trong Docker/sandbox hoặc kiểm thử chức năng của
+web do mô hình tạo.
+
+# Đợt nâng cấp sử dụng hằng ngày trước đó
 
 ## Tính năng đi cùng nhau
 
