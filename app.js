@@ -66,7 +66,13 @@ const templates={
 };
 let parentTask=null;
 const DRAFT_KEY='bao-mat.draft.v1';
-function showRequirements(){const files={web:'index.html, style.css, app.js, README.md',python:'main.py, tests/test_main.py, README.md',data:'notes.json (3 ghi chú), config.json, README.md'};document.querySelector('#template-requirements').textContent=parentTask?'Bản chỉnh sửa giữ bộ tiêu chí của bản gốc.':files[document.querySelector('#task-template').value]?'Tệp thực tế bắt buộc: '+files[document.querySelector('#task-template').value]+'. Chỉ hướng dẫn trong README chưa được tính là hoàn thành.':''}
+function showRequirements(){
+ const files={web:'index.html, style.css, app.js, README.md',python:'main.py, tests/test_main.py, README.md',data:'notes.json (3 ghi chú), config.json, README.md'};
+ const chosen=files[document.querySelector('#task-template').value],checkbox=document.querySelector('#product');
+ checkbox.disabled=Boolean(chosen||parentTask);if(checkbox.disabled)checkbox.checked=true;
+ document.querySelector('#template-requirements').textContent=parentTask?'Bản chỉnh sửa giữ bộ tiêu chí của bản gốc.':chosen?'Tệp thực tế bắt buộc: '+chosen+'. Chỉ hướng dẫn trong README chưa được tính là hoàn thành.':'';
+ document.querySelector('#output-kind').textContent=checkbox.checked?'Loại nhiệm vụ: tạo bộ tệp · có tải ZIP khi bộ tệp hợp lệ':'Loại nhiệm vụ: văn bản · chỉ có báo cáo .md, không tạo ZIP';
+}
 function currentDraft(){return {prompt:document.querySelector('#prompt').value,mode:document.querySelector('#mode').value,product:document.querySelector('#product').checked,parent_id:parentTask,template:document.querySelector('#task-template').value}}
 function persistDraft(){showRequirements();try{localStorage.setItem(DRAFT_KEY,JSON.stringify(currentDraft()));document.querySelector('#draft-status').textContent='Đã lưu nháp trên trình duyệt này. Không nhập khóa API vào yêu cầu.'}catch{document.querySelector('#draft-status').textContent='Trình duyệt không cho lưu nháp; hãy giữ lại yêu cầu trước khi đóng trang.'}}
 function restoreDraft(){try{const saved=JSON.parse(localStorage.getItem(DRAFT_KEY)||'null');if(!saved){document.querySelector('#mode').value='ollama';return}if(typeof saved.prompt!=='string'||saved.prompt.length>4000||!['demo','ollama','ai'].includes(saved.mode))return;document.querySelector('#prompt').value=saved.prompt;document.querySelector('#mode').value=saved.mode;document.querySelector('#product').checked=saved.product===true;document.querySelector('#task-template').value=Object.hasOwn(templates,saved.template)?saved.template:'';if(typeof saved.parent_id==='string'&&/^[a-zA-Z0-9_-]{1,64}$/.test(saved.parent_id)){parentTask=saved.parent_id;document.querySelector('#revision-note').textContent='Tiếp tục soạn yêu cầu chỉnh sửa từ bản '+parentTask;document.querySelector('#revision-note').hidden=false;document.querySelector('#cancel-revision').hidden=false}document.querySelector('#draft-status').textContent='Đã khôi phục bản nháp và chế độ xử lý.'}catch{document.querySelector('#draft-status').textContent='Chưa đọc được bản nháp trên trình duyệt.'}}
@@ -134,6 +140,7 @@ async function refresh(){const version=++refreshVersion;try{
  if(!tasks.length)root.append(el('p','Không có nhiệm vụ phù hợp. Thử đổi từ khóa hoặc bộ lọc.'));
  for(const t of tasks){
   const card=el('article','');card.append(el('h3',t.prompt),el('p',`${labels[t.status]||t.status} · ${t.stage} · ${t.mode==='demo'?'MÔ PHỎNG':t.mode==='ollama'?'OLLAMA':'OPENAI'} · ${new Date(t.created).toLocaleString('vi-VN')}`));
+  card.append(el('p',t.product?'Tạo bộ tệp · có ZIP khi bộ tệp hợp lệ':'Văn bản · chỉ có báo cáo .md'));
   const timing=el('p','');timing.className='progress-text';timing.dataset.duration='';timing.dataset.start=t.started_at||'';timing.dataset.finish=t.finished_at||'';timing.dataset.steps=String(t.completed_steps||0);card.append(timing);
   const history=el('button','Lịch sử từng bước');history.className='secondary';history.onclick=()=>viewHistory(t.id);card.append(history);
   const details=el('details','');details.open=opened.has(t.id);details.append(el('summary','Chi tiết và kết quả'));

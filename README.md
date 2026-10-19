@@ -426,3 +426,9 @@ chọn mẫu ở dropdown; không chỉ gõ tên mẫu như một yêu cầu chu
 Chế độ mô phỏng không thực thi kiểm tra tiêu chí sản phẩm thật, được ghi rõ
 skipped_demo trong báo cáo kiểm tra. Tiêu chí mẫu không phải sandbox hay
 kiểm thử chức năng của ứng dụng.
+
+Khi chọn mẫu JSON/web/Python, chế độ tạo bộ tệp được khóa bật ở giao diện
+và bắt buộc ở máy chủ, kể cả client cũ gửi product=false. Muốn chỉ tạo văn
+bản, chọn Tự nhập yêu cầu hoặc mẫu Lập kế hoạch. Trước nút giao việc và trên
+thẻ nhiệm vụ đều có nhãn loại kết quả. Nhiệm vụ văn bản chỉ xuất báo cáo .md,
+không có ZIP; việc cũ không tự chuyển thành nhiệm vụ sản phẩm sau cập nhật.

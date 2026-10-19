@@ -82,7 +82,7 @@ class WorkflowTest(unittest.TestCase):
             with urllib.request.urlopen(memory_request) as response:
                 self.assertTrue(json.load(response)['saved'])
             self.assertEqual(get('/api/memory')['content'], 'Dự án tiếng Việt')
-            create_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thử bộ nhớ','mode':'demo','product':True,'template':'data'}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
+            create_request = urllib.request.Request(base+'/api/tasks', data=json.dumps({'prompt':'Thử bộ nhớ','mode':'demo','product':False,'template':'data'}).encode(), headers={'Content-Type':'application/json','X-CSRF-Token':app.CSRF_TOKEN})
             with urllib.request.urlopen(create_request) as response:
                 new_id = json.load(response)['id']
             for _ in range(100):

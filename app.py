@@ -591,6 +591,7 @@ def export_task(task_id, section):
         return 409, None
     lines = ['# Nhiệm vụ đội bot', '', task['prompt'], '',
              'Mã nhiệm vụ: ' + task['id'], 'Chế độ: ' + task['mode'],
+             'Loại nhiệm vụ: '+('Tạo bộ tệp' if task['product'] else 'Văn bản; chỉ xuất báo cáo Markdown'),
              'Trạng thái: ' + task['status'], 'Tạo lúc (UTC): ' + task['created'], '']
     if task['parent_id']:
         lines += ['Phiên bản sửa từ nhiệm vụ: ' + task['parent_id'], '']
@@ -844,6 +845,8 @@ class Handler(BaseHTTPRequestHandler):
             product = True
             if not requirements:
                 requirements = get_requirements(parent_id)
+        if requirements.get('required_files'):
+            product = True
         if not product:
             requirements = {}
         with ADMISSION_LOCK:

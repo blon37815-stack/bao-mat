@@ -53,6 +53,9 @@ test('pause, submit demo, resume and inspect actual step history', async ({page}
 test('product preview, download, checks and revision draft survive reload', async ({page}) => {
   await page.locator('#task-template').selectOption('data');
   await expect(page.locator('#template-requirements')).toContainText('notes.json');
+  await expect(page.locator('#product')).toBeChecked();
+  await expect(page.locator('#product')).toBeDisabled();
+  await expect(page.locator('#output-kind')).toContainText('tạo bộ tệp');
   await page.locator('#mode').selectOption('demo');
   await page.locator('#prompt').fill('Sản phẩm mô phỏng kiểm thử giao diện');
   await page.locator('#submit').click();
