@@ -50,6 +50,20 @@ xóa thay đổi cục bộ, không tự xóa dữ liệu trong data.
 
 ## Giao việc và chọn mẫu
 
+Thanh bên chia ứng dụng thành các khu riêng:
+
+| Khu | Dùng để làm gì |
+|---|---|
+| Làm việc | Soạn yêu cầu, xem danh sách nhiệm vụ và mở kết quả ở khung bên cạnh |
+| Đội bot | Xem đủ 9 thành phần, vai trò, việc đang làm và thiết lập từng bot |
+| Tài liệu | Nhập, sửa, tìm, xóa tài liệu; quản lý bộ nhớ dự án chung |
+| Tài nguyên | Xem CPU/RAM/GPU và đặt giới hạn lượt gọi, số việc chờ |
+| Thiết lập | Kiểm tra kết nối, tải bản sao lưu và dọn dữ liệu cũ |
+
+Trong Làm việc, bấm Mở kết quả để đọc kế hoạch, sản phẩm và nhận xét.
+Xem bộ tệp mở cây tệp và trình soạn thảo; có thể mở rộng khung bên phải.
+Chuyên gia/lượt gọi/tài liệu đính kèm nằm trong phần tùy chọn thu gọn.
+
 - **Mô phỏng:** không gọi mô hình; sản phẩm chỉ là README mô phỏng.
 - **Ollama:** gọi AI trên máy, không phí API; không tự chuyển sang OpenAI.
 - **OpenAI:** cần OPENAI_API_KEY, có thể tính phí; giao diện vô hiệu hóa khi
@@ -174,6 +188,34 @@ của ứng dụng xuất báo cáo, không khẳng định nhiệm vụ cũ đ�
 đó. ZIP rà soát không chứa .git có thể hiển thị commit unknown.
 
 ## Bộ nhớ, tìm kiếm và bản nháp
+
+Đội bot hiển thị đúng 1 bộ quản lý bằng mã, 5 hồ sơ chuyên gia và 3 bot
+thực thi đang có. Không giả lập thêm agent ECC chưa tích hợp. Thiết lập
+bot cho đổi tên hiển thị và hướng dẫn riêng tối đa 1500 ký tự; quản lý
+giới hạn chuyển tới khu Tài nguyên. Không đổi mô hình, quyền công cụ hoặc
+hạn mức bằng lời nhắc. Thiết lập được chụp lúc giao nhiệm vụ; sửa thiết
+lập sau đó không đổi việc đã giao. Chạy lại giữ bản thiết lập cũ.
+
+Thư viện nhận văn bản gõ/dán hoặc tệp TXT/Markdown/JSON UTF-8. Tối đa 30
+tài liệu, 20000 ký tự mỗi tài liệu, 500 KB toàn thư viện. Khi giao việc,
+chọn tối đa 5 tài liệu, tổng 16000 ký tự; không tự gửi toàn thư viện cho AI.
+Các bản tài liệu lúc gửi được lưu trong nhiệm vụ và báo cáo. Xóa tài liệu
+cần xác nhận và chỉ xóa khỏi thư viện; bản đã gửi và các bản sao lưu vẫn
+giữ nội dung. Chưa đọc PDF/Word, tìm kiếm ngữ nghĩa hoặc đồng bộ thư mục.
+
+Khung sản phẩm có ba chế độ: Kết quả, Tệp & chỉnh sửa, Xem trước. Xem
+trước HTML/CSS chỉ dựng tĩnh trong iframe sandbox không quyền; lọc script,
+iframe, trình xử lý sự kiện và URL ngoài, kèm CSP chặn mạng. CSS liên kết
+trong bộ tệp được ghép để hiển thị. Chưa chạy JavaScript, tài nguyên ngoài,
+backend Python hoặc kiểm thử chức năng. JSON/văn bản hiển thị nội dung.
+
+Sửa tệp hoặc bỏ một tệp khỏi bộ sản phẩm chỉ thay bản nháp trong khung.
+Bấm Lưu thành phiên bản mới để lưu; không ghi đè bản gốc, không gọi AI,
+không thực thi mã. Phiên bản mới luôn Cần bạn xem, có diff và tải ZIP;
+tiêu chí tệp bắt buộc cũ vẫn giữ. Không cho bỏ hết tệp hoặc thoát đường
+dẫn. Nhờ bot chỉnh tiếp dùng phiên bản đã lưu, chưa gửi phần sửa chưa lưu.
+Bản sửa tệp và tài liệu chưa lưu chỉ ở bộ nhớ tab, không tự lưu qua reload;
+trình duyệt có nhắc khi rời trang. Khung web không phải môi trường chạy app.
 
 Bộ nhớ chung tối đa 8000 ký tự, gửi kèm các bước đến nhà cung cấp được chọn.
 Mỗi nhiệm vụ giữ bản sao lúc tạo. Sửa bộ nhớ chỉ ảnh hưởng việc mới; để
@@ -342,7 +384,8 @@ npm run format:check
 BAO_TEST_PYTHON đổi Python kiểm thử; PLAYWRIGHT_EXECUTABLE_PATH dùng Chromium
 có sẵn. Bộ trình duyệt chạy app thật với SQLite tạm ở cổng 8989, mô phỏng
 provider; LangGraph thật vẫn điều phối. Không dùng khóa API hoặc dữ liệu
-người dùng. npm run format định dạng app.js/resource_ui.js/index.html/styles.css.
+người dùng. npm run format định dạng app.js/resource_ui.js/workspace_ui.js,
+index.html và styles.css.
 
 Actions cấu hình Python 3.12, unittest, Prettier và Chromium trên Windows/
 Ubuntu; lưu trace khi lỗi. Có cấu hình không đồng nghĩa CI đã xanh. Xem

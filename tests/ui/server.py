@@ -34,5 +34,13 @@ with tempfile.TemporaryDirectory(prefix='bao-mat-ui-') as temporary:
     with app.connect() as db:
         db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)',('cleanup-fixture','Nhiệm vụ cũ để kiểm thử dọn','demo','completed','','{"result":"Kết quả cuối cần giữ"}',old))
         db.execute('INSERT INTO task_steps(task_id,role,attempt,started_at,finished_at,status,output) VALUES (?,?,1,?,?,?,?)',('cleanup-fixture','result',old,old,'completed','Nội dung lượt đã cũ'))
+        preview_files=[
+            {'path':'index.html','content':'<!doctype html><html><head><link rel="stylesheet" href="style.css"><script>window.parent.previewExecuted=true;fetch("https://outside.test/script")</script></head><body><h1 onclick="alert(1)">Trang xem trước tiếng Việt</h1><img src="https://outside.test/pixel"><a href="https://outside.test">Ngoài</a></body></html>'},
+            {'path':'style.css','content':'@import url("https://outside.test/style"); body { background: rgb(1, 2, 3); color: white; }'},
+            {'path':'app.js','content':'window.parent.previewExecuted=true;'},
+            {'path':'README.md','content':'# Sản phẩm giả lập cho kiểm thử khung xem trước'},
+        ]
+        db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)',('web-preview-fixture','Trang mẫu để duyệt và chỉnh sửa','ollama','completed','Dữ liệu giả lập kiểm thử',json.dumps({'result':json.dumps({'files':preview_files},ensure_ascii=False)},ensure_ascii=False),app.utc_now()))
+        db.execute('INSERT INTO task_products VALUES (?,1)',('web-preview-fixture',))
     server = app.ThreadingHTTPServer(('127.0.0.1',int(os.environ.get('PORT','8989'))),app.Handler)
     server.serve_forever()

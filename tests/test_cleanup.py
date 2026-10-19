@@ -31,6 +31,10 @@ class CleanupTest(unittest.TestCase):
             db.execute('INSERT INTO task_requirements VALUES (?,?)',(identifier,'{}'))
             db.execute('INSERT INTO task_generation VALUES (?,?,?)',(identifier,'per_file',5))
             db.execute('INSERT INTO task_assignment VALUES (?,?,?,?)',(identifier,'data',20,'source'))
+            db.execute('INSERT OR IGNORE INTO documents VALUES (?,?,?,?)',('library','Tài liệu chung','Giữ thư viện',created))
+            db.execute('INSERT OR IGNORE INTO bot_preferences VALUES (?,?,?)',('plan','Điều phối riêng','Giữ thiết lập chung'))
+            db.execute('INSERT INTO task_documents VALUES (?,?,?,?)',(identifier,'library','Tài liệu chung','Bản gửi riêng'))
+            db.execute('INSERT INTO task_bot_preferences VALUES (?,?)',(identifier,'{}'))
             db.execute('INSERT INTO task_timing VALUES (?,?,?)',(identifier,created,created))
             db.execute('INSERT INTO task_steps(task_id,role,attempt,started_at,finished_at,status,output) VALUES (?,?,1,?,?,?,?)',
                        (identifier,'result',created,created,'completed','Nội dung lượt cũ'))
@@ -84,10 +88,12 @@ class CleanupTest(unittest.TestCase):
             self.assert_task_exists(identifier)
         with app.connect() as db:
             self.assertIsNone(db.execute('SELECT id FROM tasks WHERE id="old"').fetchone())
-            for table in ('task_memory','task_products','task_timing','task_steps','task_requirements','task_generation','task_assignment'):
+            for table in ('task_memory','task_products','task_timing','task_steps','task_requirements','task_generation','task_assignment','task_documents','task_bot_preferences'):
                 self.assertEqual(db.execute('SELECT COUNT(*) FROM '+table+' WHERE task_id="old"').fetchone()[0],0)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM task_sources').fetchone()[0],1)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM task_retries').fetchone()[0],1)
+            self.assertEqual(db.execute('SELECT content FROM documents').fetchone()[0],'Giữ thư viện')
+            self.assertEqual(db.execute('SELECT name FROM bot_preferences').fetchone()[0],'Điều phối riêng')
         self.assertEqual(app.get_memory(),'Bộ nhớ chung phải giữ')
 
     def test_confirmation_expiry_and_changed_data_require_new_preview(self):

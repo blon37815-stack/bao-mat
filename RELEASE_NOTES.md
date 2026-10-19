@@ -1,3 +1,32 @@
+# Đợt giao diện không gian làm việc
+
+- Thay trang dài bằng thanh bên với 5 khu: Làm việc, Đội bot, Tài liệu,
+  Tài nguyên, Thiết lập. Tổng quan nhiệm vụ và hàng đợi lấy số liệu thật.
+- Hiển thị đầy đủ 9 thành phần hiện có, nhiệm vụ đang xử lý và vai trò;
+  cho đổi tên/hướng dẫn riêng của 5 chuyên gia và 3 bot thực thi. Thiết
+  lập được giữ trong SQLite, chụp cho nhiệm vụ mới; chạy lại giữ bản cũ.
+- Khung sản phẩm bên phải: đọc kết quả, duyệt tệp, sửa văn bản, bỏ tệp
+  khỏi bản sửa và lưu phiên bản mới. Giữ bản gốc, 0 lượt AI cho lưu thủ
+  công, luôn Cần bạn xem. Không chạy mã hoặc tự duyệt phiên bản mới.
+- Xem trước HTML/CSS tĩnh có khổ điện thoại, CSS liên kết trong bộ tệp,
+  iframe sandbox không quyền và CSP chặn mạng; lọc nội dung chủ động và
+  URL ngoài. Chưa chạy JS/backend hoặc xác minh chức năng sản phẩm.
+- Thư viện tài liệu: nhập TXT/Markdown/JSON UTF-8, thêm/sửa/tìm/xóa có xác
+  nhận. Chọn tài liệu khi giao việc; giữ bản nội dung lúc gửi trong lịch
+  sử. Có nút xóa bộ nhớ chung; không xóa bản đã gửi hoặc bản sao lưu.
+- Bản sao lưu SQLite chứa thư viện, thiết lập bot và bản chụp theo nhiệm
+  vụ. Dọn nhiệm vụ cũ xóa các bản chụp riêng, giữ thư viện/thiết lập chung.
+
+Kiểm chứng cục bộ: 110 unittest Python và 12 luồng Chromium trên Linux,
+provider giả lập, LangGraph thật. Đã thử nhập/đính kèm/xóa tài liệu, lưu
+thiết lập qua reload, chỉnh tệp qua polling, giữ bản gốc, preview không
+chạy script/không gọi URL ngoài và bố cục 390px không tràn ngang. Đã xem
+ảnh bố cục desktop. Chưa thử Ollama thật trên Windows hoặc xác nhận CI
+remote xanh. Chưa gộp PR. Không thêm phụ thuộc chạy app trong đợt này.
+
+Cập nhật một lần bằng cap-nhat.bat, mở lại và Ctrl+F5. Các bảng mới tự thêm
+vào SQLite; nhiệm vụ, sản phẩm và bộ nhớ cũ được giữ.
+
 # Đợt chuyên gia ECC, phân công và tài nguyên
 
 - Thêm 5 hồ sơ chuyên gia thích ứng từ ECC: lập kế hoạch, kiến trúc,

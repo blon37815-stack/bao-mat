@@ -30,6 +30,7 @@ function el(tag, text) {
 }
 let sessionToken;
 let budgetTouched = false;
+let selectedDocuments = [];
 const expertNames = {
   planner: "ECC · Lập kế hoạch",
   architect: "ECC · Kiến trúc",
@@ -80,6 +81,7 @@ async function apiFetch(url, options = {}) {
   return fetch(url, options);
 }
 async function viewFiles(id) {
+  if (window.WorkspaceUI) return window.WorkspaceUI.openTask(id, "code");
   document.querySelector("#dialog-title").textContent = "Bộ tệp sản phẩm";
   try {
     const response = await apiFetch("/api/tasks/" + id + "/files");
@@ -239,6 +241,7 @@ async function checkHealth() {
     if (!response.ok) throw Error("Không đọc được kết nối");
     const data = await response.json(),
       info = data.ollama;
+    window.dispatchEvent(new CustomEvent("workspace:health", { detail: info }));
     status.textContent =
       info.status === "ready"
         ? "Ollama đang phản hồi · Đã có " + info.model
@@ -501,6 +504,7 @@ function currentDraft() {
     parent_id: parentTask,
     template: document.querySelector("#task-template").value,
     expert: document.querySelector("#expert").value,
+    document_ids: [...selectedDocuments],
     call_limit: Number(document.querySelector("#call-limit").value),
   };
 }
@@ -529,6 +533,10 @@ function restoreDraft() {
     )
       return;
     document.querySelector("#prompt").value = saved.prompt;
+    if (Array.isArray(saved.document_ids))
+      selectedDocuments = saved.document_ids
+        .filter((id) => typeof id === "string")
+        .slice(0, 5);
     document.querySelector("#mode").value = saved.mode;
     document.querySelector("#product").checked = saved.product === true;
     if (saved.expert === "auto" || Object.hasOwn(expertNames, saved.expert))
@@ -579,6 +587,8 @@ document.querySelector("#clear-draft").onclick = () => {
   )
     return;
   document.querySelector("#prompt").value = "";
+  selectedDocuments = [];
+  window.dispatchEvent(new Event("workspace:documents"));
   document.querySelector("#product").checked = false;
   document.querySelector("#task-template").value = "";
   clearRevision();
@@ -607,6 +617,7 @@ function clearRevision() {
 }
 document.querySelector("#cancel-revision").onclick = clearRevision;
 async function beginRevision(task) {
+  window.WorkspaceUI?.showView("workspace");
   try {
     const response = await apiFetch("/api/tasks/" + task.id + "/files");
     const data = await response.json();
@@ -809,9 +820,9 @@ async function refresh() {
         "OpenAI chưa cấu hình; chuyển sang mô phỏng. Bạn có thể chọn Ollama.";
     }
     const roles = document.querySelector(".roles");
-    roles.replaceChildren();
+    roles?.replaceChildren();
     for (const bot of team.bots)
-      roles.append(
+      roles?.append(
         el(
           "span",
           bot.name +
@@ -845,6 +856,11 @@ async function refresh() {
     document.querySelector("#toggle-queue").disabled = queueUpdating;
     queueFull = team.queue.waiting >= team.queue.capacity;
     document.querySelector("#submit").disabled = submitting || queueFull;
+    window.dispatchEvent(
+      new CustomEvent("workspace:update", {
+        detail: { tasks: data.tasks, team },
+      }),
+    );
     const signature = JSON.stringify(data.tasks);
     if (signature === lastTaskSignature) {
       updateDurations();
@@ -860,6 +876,9 @@ async function refresh() {
       );
     for (const t of tasks) {
       const card = el("article", "");
+      card.className = "task-card";
+      card.dataset.taskId = t.id;
+      card.dataset.status = t.status;
       card.append(
         el("h3", t.prompt),
         el(
@@ -881,6 +900,7 @@ async function refresh() {
           bundle: "Sinh cả bộ tệp",
           text: "Sinh văn bản",
           demo: "Mô phỏng",
+          manual: "Bạn chỉnh sửa thủ công",
         };
         card.append(
           el(
@@ -897,7 +917,9 @@ async function refresh() {
         card.append(
           el(
             "p",
-            (expertNames[t.expert] || "Đội cơ bản") +
+            (t.bot_preferences?.[t.expert]?.name
+              ? "ECC · " + t.bot_preferences[t.expert].name
+              : expertNames[t.expert] || "Đội cơ bản") +
               " → Đội thực thi · lượt gọi " +
               t.model_calls +
               "/" +
@@ -910,6 +932,17 @@ async function refresh() {
       timing.dataset.finish = t.finished_at || "";
       timing.dataset.steps = String(t.completed_steps || 0);
       card.append(timing);
+      const inspect = el("button", "Mở kết quả");
+      inspect.onclick = () => window.WorkspaceUI?.openTask(t);
+      card.append(inspect);
+      if (t.documents?.length)
+        card.append(
+          el(
+            "p",
+            "Đính kèm: " +
+              t.documents.map((document) => document.title).join(", "),
+          ),
+        );
       const history = el("button", "Lịch sử từng bước");
       history.className = "secondary";
       history.onclick = () => viewHistory(t.id);
@@ -1061,6 +1094,8 @@ document.querySelector("#form").onsubmit = async (event) => {
     if (JSON.stringify(currentDraft()) === JSON.stringify(request)) {
       document.querySelector("#prompt").value = "";
       document.querySelector("#task-template").value = "";
+      selectedDocuments = [];
+      window.dispatchEvent(new Event("workspace:documents"));
       clearRevision();
       persistDraft();
     }

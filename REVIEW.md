@@ -7,6 +7,15 @@ gói ghi commit và SHA-256 từng tệp để đối chiếu; file này không 
 
 ## Phần mới cần xem
 
+Đợt mới nhất: index.html/styles.css và workspace_ui.js chia 5 khu, 9 thẻ
+bot, trình soạn thảo và preview. workspace_data.py lưu thư viện/hướng dẫn
+bot và bản chụp theo nhiệm vụ; app.py thêm API JSON có token. Xóa tài liệu
+giữ bản đã gửi; lưu tệp tạo phiên bản needs_review không gọi mô hình.
+web_preview.py chỉ ghép HTML/CSS tĩnh đã lọc, đặt CSP; iframe sandbox ở UI
+không allow-scripts/allow-same-origin. tests/test_workspace.py và 4 luồng
+Chromium mới kiểm tra các ranh giới này. Chưa có đọc PDF/Word, chạy JS của
+sản phẩm hoặc chạy Python. Xem RELEASE_NOTES.md cho số kiểm thử hiện tại.
+
 1. expert_team.py/app.py: bản chỉ đạo của một chuyên gia thích ứng từ ECC
    truyền tới ba vai trò, cùng mô hình đã chọn. task_assignment giữ hồ sơ,
    commit nguồn và giới hạn riêng. model_reply đặt chỗ lượt gọi nguyên tử

@@ -48,6 +48,10 @@ class MaintenanceTest(unittest.TestCase):
             source.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', ('original', 'Build', 'ollama', 'completed', '', '{"result":"code"}', 'now'))
             source.execute('INSERT INTO task_products VALUES (?,?)', ('original', 1))
             app.snapshot_memory(source, 'original')
+            document_id=app.workspace_data.save_document(source,None,'Tiêu chí','Tài liệu tiếng Việt','now')
+            app.workspace_data.snapshot_documents(source,'original',[document_id])
+            app.workspace_data.save_bot(source,'plan','Người điều phối','Giải thích ngắn')
+            app.workspace_data.snapshot_bots(source,'original')
             source.execute('INSERT INTO task_sources VALUES (?,?,?,?)', ('child','original','[]','request'))
             source.commit()
             self.assertTrue(Path(str(app.DB)+'-wal').exists())
@@ -66,6 +70,10 @@ class MaintenanceTest(unittest.TestCase):
             self.assertEqual(restored.execute('SELECT enabled FROM task_products').fetchone()[0], 1)
             self.assertEqual(restored.execute('SELECT content FROM task_memory').fetchone()[0], 'Mục tiêu tiếng Việt')
             self.assertEqual(restored.execute('SELECT parent_id FROM task_sources').fetchone()[0], 'original')
+            self.assertEqual(restored.execute('SELECT content FROM documents').fetchone()[0],'Tài liệu tiếng Việt')
+            self.assertEqual(restored.execute('SELECT content FROM task_documents').fetchone()[0],'Tài liệu tiếng Việt')
+            self.assertEqual(restored.execute('SELECT name FROM bot_preferences').fetchone()[0],'Người điều phối')
+            self.assertIn('Người điều phối',restored.execute('SELECT spec FROM task_bot_preferences').fetchone()[0])
         finally:
             restored.close()
 
