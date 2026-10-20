@@ -117,11 +117,16 @@ def source_profile(expert):
     texts, sources = [], []
     for name in EXPERTS[expert]['sources']:
         raw = (ROOT/'third_party/ecc'/name).read_bytes()
-        digest = hashlib.sha256(raw).hexdigest()
+        checkout_digest = hashlib.sha256(raw).hexdigest()
+        # Existing Windows checkouts may already contain Git's CRLF conversion.
+        # Accept only the exact upstream LF content; any other edit still fails.
+        canonical = raw if checkout_digest == metadata['files'][name] else raw.replace(b'\r\n', b'\n')
+        digest = hashlib.sha256(canonical).hexdigest()
         if digest != metadata['files'][name] or metadata['commit'] != ECC_COMMIT:
             raise ValueError('Nguồn ECC đã thay đổi; cần rà soát và cập nhật phiên bản trước khi dùng')
-        texts.append(raw.decode('utf-8'))
-        sources.append({'path':name, 'sha256':digest})
+        texts.append(canonical.decode('utf-8'))
+        sources.append({'path':name, 'sha256':digest, 'checkout_sha256':checkout_digest,
+                        'line_endings_normalized':canonical != raw})
     return {'version':1, 'commit':ECC_COMMIT, 'sources':sources, 'reference':'\n\n'.join(texts)}
 
 

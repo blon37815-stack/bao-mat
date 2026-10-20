@@ -21,6 +21,8 @@ Không cần thêm thư viện chạy app so với bản trước. Docker chỉ 
 
 Các nguồn ECC của chuyên gia được kiểm hash theo `PROVENANCE.json`, lưu bản tham khảo đầy đủ vào nhiệm vụ và gửi bước chỉ đạo. Không nạp hook, MCP hoặc quyền shell. Tên bot có thể đổi nhưng vai trò, quyền và hạn mức vẫn do ứng dụng kiểm soát.
 
+Git được cấu hình giữ nguyên byte cho nguồn ECC. Với checkout Windows cũ đã đổi LF thành CRLF, app kiểm hash sau khi chuẩn hóa xuống dòng và ghi cả hash checkout; thay đổi nội dung khác vẫn bị từ chối.
+
 ## Dự án và workspace
 
 - Tạo ID/tên dự án và bộ nhớ riêng trong Thiết lập. Chọn dự án trong khung giao việc. Dự án chung tương thích với ô bộ nhớ chung cũ.

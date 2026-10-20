@@ -18,11 +18,15 @@
   migration trên bản sao trước fast-forward. Dependency đổi được chuẩn bị
   trong môi trường riêng; launcher giữ `.venv` cũ. Có `phuc-hoi.bat` tạo
   thư mục phục hồi mới và BAT khởi động dùng đúng dữ liệu của bản phục hồi.
+- Tương thích Git Windows: giữ nguyên nguồn ECC, chấp nhận chuyển đổi
+  CRLF/LF đã kiểm hash và ghi nhận hash checkout; sửa nội dung vẫn bị chặn.
+- Nháp chỉnh sửa được lưu trước khi kiểm tra nguồn qua mạng, tránh mất
+  liên kết bản gốc khi người dùng gõ và làm mới trang ngay sau khi bấm sửa.
 - Ctrl+C tạm dừng hàng đợi, phát tín hiệu hủy việc và giữ trạng thái gián
   đoạn để chạy lại; asset/API no-store giảm việc dùng nhầm giao diện cũ.
 
-Kiểm chứng cục bộ ngày 20/10/2026: **142 unittest đạt** với LangGraph thật,
-trong đó 4 ca thực thi Docker thật và các ca provider giả lập; **18 luồng
+Kiểm chứng cục bộ ngày 20/10/2026: **143 unittest đạt** với LangGraph thật,
+trong đó 4 ca thực thi Docker thật và các ca provider giả lập; **19 luồng
 Chromium đạt** trên Linux. Đã thử hủy vòng lặp vô hạn, chặn mạng/ghi nguồn,
 stdout quá lớn, không có test, model đổi khi việc chờ, migration trên bản
 sao, mã đích hỏng và khôi phục source/SQLite; đã thử tạo môi trường riêng

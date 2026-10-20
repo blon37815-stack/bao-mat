@@ -472,3 +472,17 @@ test('product checks report unsupported web execution and unknown commands stay 
   await expect(page.locator('#error')).toContainText('Lệnh chưa hỗ trợ');
   await expect(page.locator('#prompt')).toHaveValue('/tdd something');
 });
+
+test('revision draft survives reload while source validation is still pending', async ({page}) => {
+  await page.evaluate(() => window.WorkspaceUI.openTask('web-preview-fixture'));
+  await page.route('**/api/tasks/web-preview-fixture/files', async (route) => {
+    await new Promise(resolve => setTimeout(resolve, 800));
+    try { await route.continue(); } catch {}
+  });
+  await page.locator('#ask-revision').click();
+  await page.locator('#prompt').fill('Nháp phải giữ trước khi phản hồi về');
+  await page.reload();
+  await expect(page.locator('#revision-note')).toBeVisible();
+  await expect(page.locator('#revision-note')).toContainText('web-preview-fixture');
+  await expect(page.locator('#prompt')).toHaveValue('Nháp phải giữ trước khi phản hồi về');
+});

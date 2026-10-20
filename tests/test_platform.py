@@ -2,6 +2,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import shutil
 import tempfile
 import threading
 import unittest
@@ -212,3 +213,15 @@ class PlatformTest(unittest.TestCase):
         self.assertTrue(event.is_set())
         self.assertTrue(app.TASK_QUEUE.paused)
         self.assertEqual(self.get('/api/tasks/'+task)['status'], 'interrupted')
+
+    def test_ecc_windows_newlines_match_upstream_but_content_edits_fail(self):
+        root = Path(self.temporary.name)/'windows-checkout'
+        shutil.copytree(platform_config.ROOT/'third_party/ecc', root/'third_party/ecc')
+        source = root/'third_party/ecc/agents/planner.md'
+        source.write_bytes(source.read_bytes().replace(b'\n', b'\r\n'))
+        with patch.object(platform_config, 'ROOT', root):
+            profile = platform_config.source_profile('planner')
+            self.assertTrue(profile['sources'][0]['line_endings_normalized'])
+            self.assertNotIn('\r\n', profile['reference'])
+            source.write_bytes(source.read_bytes()+b'changed content')
+            with self.assertRaises(ValueError): platform_config.source_profile('planner')

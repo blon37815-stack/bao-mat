@@ -626,9 +626,6 @@ document.querySelector("#cancel-revision").onclick = clearRevision;
 async function beginRevision(task) {
   window.WorkspaceUI?.showView("workspace");
   try {
-    const response = await apiFetch("/api/tasks/" + task.id + "/files");
-    const data = await response.json();
-    if (!response.ok) throw Error(data.error);
     parentTask = task.id;
     selectedProject = task.project_id || task.runtime?.project_id || "default";
     if (document.querySelector("#task-project"))
@@ -661,8 +658,13 @@ async function beginRevision(task) {
     prompt.focus();
     prompt.scrollIntoView({ behavior: "smooth", block: "center" });
     persistDraft();
+    // Save the revision before I/O: typing or reloading during validation
+    // must not lose the parent ID or overwrite the user's new request.
+    const response = await apiFetch("/api/tasks/" + task.id + "/files");
+    const data = await response.json();
+    if (!response.ok && parentTask === task.id) throw Error(data.error);
   } catch (e) {
-    reportError(e.message);
+    if (parentTask === task.id) reportError(e.message);
   }
 }
 async function viewDiff(id) {
