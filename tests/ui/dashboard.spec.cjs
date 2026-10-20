@@ -123,6 +123,9 @@ test('polling preserves expanded result and does not recreate unchanged cards', 
   await taskList(page, result.id);
   const card=page.locator('#tasks article').filter({hasText:'Kết quả giữ nguyên khi làm mới'});
   await expect(card).toContainText('Hoàn thành mô phỏng');
+  // The worker records final timing after setting the terminal status. Only
+  // assert unchanged DOM once the complete row snapshot has stopped changing.
+  await expect(card.locator('[data-duration]')).not.toHaveAttribute('data-finish', '');
   await card.locator('summary').click();
   await card.evaluate(node=>node.dataset.testMarker='original');
   await page.waitForTimeout(2300);
