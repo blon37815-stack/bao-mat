@@ -81,6 +81,22 @@ async function apiFetch(url, options = {}) {
   }
   return fetch(url, options);
 }
+window.addEventListener("load", () => {
+  const ready = Boolean(window.WorkspaceUI && window.PlatformUI);
+  document.documentElement.dataset.uiReady = String(ready);
+  document
+    .querySelectorAll("[data-view], #new-task, #open-tasks")
+    .forEach((button) => {
+      button.disabled = !ready;
+    });
+  if (!ready) {
+    const notice = document.querySelector("#workspace-notice");
+    notice.hidden = false;
+    notice.textContent =
+      "Chưa tải đủ giao diện. Nhấn Ctrl+F5 để tải lại; kiểm tra Console nếu lỗi còn xuất hiện.";
+  }
+  refresh();
+});
 async function viewFiles(id) {
   if (window.WorkspaceUI) return window.WorkspaceUI.openTask(id, "code");
   document.querySelector("#dialog-title").textContent = "Bộ tệp sản phẩm";
@@ -1106,9 +1122,12 @@ async function refresh() {
     document.querySelector("#toggle-queue").textContent = queuePaused
       ? "Tiếp tục hàng đợi"
       : "Tạm dừng hàng đợi";
-    document.querySelector("#toggle-queue").disabled = queueUpdating;
+    const uiReady = document.documentElement.dataset.uiReady === "true";
+    document.querySelector("#toggle-queue").disabled =
+      queueUpdating || !uiReady;
     queueFull = team.queue.waiting >= team.queue.capacity;
-    document.querySelector("#submit").disabled = submitting || queueFull;
+    document.querySelector("#submit").disabled =
+      submitting || queueFull || !uiReady;
     window.dispatchEvent(
       new CustomEvent("workspace:update", {
         detail: { tasks: data?.tasks || [], team },

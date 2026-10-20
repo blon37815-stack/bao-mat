@@ -1120,6 +1120,10 @@ def export_task(task_id, section):
 
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+    timeout = 15
+    disable_nagle_algorithm = True
+
     def allowed_request(self, writing=False):
         hosts = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
         host = self.headers.get('Host')
@@ -1144,11 +1148,20 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def end_headers(self):
+        # Reuse read connections. Write routes may deliberately reject or
+        # ignore a body, so always close them before accepting another request.
+        headers = getattr(self, 'headers', {})
+        if self.command != 'GET' or 'Content-Length' in headers or 'Transfer-Encoding' in headers:
+            self.close_connection = True
+        if self.close_connection:
+            self.send_header('Connection', 'close')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Cache-Control', 'no-store')
         super().end_headers()
 
     def respond(self, status, body, content_type='application/json; charset=utf-8'):
+        if status >= 400:
+            self.close_connection = True
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header('Content-Type', content_type)

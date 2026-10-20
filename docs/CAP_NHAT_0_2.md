@@ -10,6 +10,8 @@
 
 Không cần thêm thư viện chạy app so với bản trước. Docker chỉ cần cho kiểm thử chức năng Python, không cần để dùng giao diện/sinh sản phẩm.
 
+Các nút điều hướng và giao việc chỉ bật sau khi tải đủ mã giao diện. Nếu một tệp JavaScript tải thất bại, trang báo rõ **Chưa tải đủ giao diện** và hướng dẫn Ctrl+F5. Kết nối đọc được tái sử dụng để giảm số socket khi làm mới nhiều lần trên Windows.
+
 ## Hồ sơ model và từng bot
 
 - Một hồ sơ có ID, tên hiển thị, nhà cung cấp, tên model, thời hạn mỗi lần gọi, giới hạn đầu vào theo ký tự và đầu ra theo token. Context Ollama bằng 0 giữ mặc định dịch vụ; giá trị khác chuyển thành `num_ctx`.

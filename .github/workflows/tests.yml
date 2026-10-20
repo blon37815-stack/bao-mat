@@ -51,7 +51,7 @@ jobs:
         run: npm run format:check --prefix tests/ui
       - name: Install Chromium
         working-directory: tests/ui
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps --only-shell chromium
       - name: Exercise dashboard in Chromium
         run: npm test --prefix tests/ui
         env:

@@ -546,5 +546,33 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn('Chưa gắn mẫu',report.decode())
         self.assertNotIn('luồng chưa hoàn thành',report.decode())
 
+    def test_read_requests_reuse_connection_but_rejected_bodies_are_closed(self):
+        import http.client
+        import threading
+        server = app.ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True); worker.start()
+        client = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
+        try:
+            client.request('GET', '/api/session')
+            response = client.getresponse(); response.read()
+            self.assertEqual(response.version, 11)
+            connection = client.sock
+            self.assertIsNotNone(connection)
+            for path in ('/api/team', '/api/version', '/api/session'):
+                client.request('GET', path)
+                response = client.getresponse(); response.read()
+                self.assertEqual(response.status, 200)
+                self.assertIs(client.sock, connection)
+            client.request('POST', '/api/queue', body='unread body', headers={'Content-Type':'text/plain'})
+            response = client.getresponse(); response.read()
+            self.assertEqual(response.status, 415)
+            self.assertTrue(response.will_close)
+            client.request('GET', '/api/session')
+            response = client.getresponse(); response.read()
+            self.assertEqual(response.status, 200)
+            self.assertIsNot(client.sock, connection)
+        finally:
+            client.close(); server.shutdown(); server.server_close(); worker.join()
+
 if __name__ == '__main__':
     unittest.main()

@@ -17,22 +17,24 @@
         ><span class="brand-mark">B</span
         ><span>BAO MAT<small>Không gian của bạn</small></span></a
       >
-      <button class="new-task" id="new-task">＋ Giao việc mới</button>
+      <button class="new-task" id="new-task" disabled>＋ Giao việc mới</button>
       <p class="nav-caption">KHÔNG GIAN LÀM VIỆC</p>
       <nav class="main-nav">
-        <button data-view="workspace" aria-current="page">
+        <button data-view="workspace" aria-current="page" disabled>
           <span aria-hidden="true">▦</span> Trao đổi
         </button>
-        <button data-view="tasks" title="Mở danh sách công việc">
+        <button data-view="tasks" title="Mở danh sách công việc" disabled>
           <span aria-hidden="true">▣</span> Công việc
           <small id="nav-task-count">0</small>
         </button>
-        <button data-view="team">
+        <button data-view="team" disabled>
           <span>◈</span> Đội bot <small>9</small>
         </button>
-        <button data-view="documents"><span>▤</span> Tài liệu</button>
-        <button data-view="resources"><span>◷</span> Tài nguyên</button>
-        <button data-view="settings"><span>⚙</span> Thiết lập</button>
+        <button data-view="documents" disabled><span>▤</span> Tài liệu</button>
+        <button data-view="resources" disabled>
+          <span>◷</span> Tài nguyên
+        </button>
+        <button data-view="settings" disabled><span>⚙</span> Thiết lập</button>
       </nav>
       <div class="sidebar-note">
         <span class="online-dot"></span><strong>Chạy trên máy của bạn</strong>
@@ -162,7 +164,7 @@
                   </p>
                 </details>
                 <div class="actions">
-                  <button id="submit">Giao nhiệm vụ →</button
+                  <button id="submit" disabled>Giao nhiệm vụ →</button
                   ><button id="clear-draft" type="button" class="secondary">
                     Xóa bản nháp
                   </button>
@@ -175,7 +177,11 @@
                 khi bật; chưa tự cài đặt hoặc triển khai sản phẩm.</small
               >
             </section>
-            <button id="open-tasks" class="secondary workspace-shortcut">
+            <button
+              id="open-tasks"
+              class="secondary workspace-shortcut"
+              disabled
+            >
               <span aria-hidden="true">▣</span> Mở danh sách công việc
               <span id="workspace-task-count" class="pill">0</span>
             </button>

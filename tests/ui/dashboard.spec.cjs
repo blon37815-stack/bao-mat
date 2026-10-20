@@ -486,3 +486,18 @@ test('revision draft survives reload while source validation is still pending', 
   await expect(page.locator('#revision-note')).toContainText('web-preview-fixture');
   await expect(page.locator('#prompt')).toHaveValue('Nháp phải giữ trước khi phản hồi về');
 });
+
+test('failed workspace script keeps controls disabled and explains how to recover', async ({page}) => {
+  await page.route('**/workspace_ui.js', route => route.abort('failed'));
+  await page.reload();
+  await expect(page.locator('#workspace-notice')).toContainText('Chưa tải đủ giao diện');
+  await expect(page.locator('[data-view="resources"]')).toBeDisabled();
+  await expect(page.locator('#toggle-queue')).toBeDisabled();
+  await expect(page.locator('#submit')).toBeDisabled();
+  await page.unroute('**/workspace_ui.js');
+  await page.reload();
+  await expect(page.locator('#toggle-queue')).toBeEnabled();
+  await page.locator('[data-view="resources"]').click();
+  await expect(page.locator('#view-resources')).toBeVisible();
+  await expect(page.locator('#default-call-limit')).toBeEditable();
+});
