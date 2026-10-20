@@ -419,3 +419,56 @@ test('a failed action reports an error in the visible work list', async ({page})
   await expect(page.locator('#workspace-notice')).toBeVisible();
   await expect(page.locator('#workspace-notice')).toContainText('Bộ kiểm tra đang bận');
 });
+
+test('project and model settings reach a run and stay frozen after model edits', async ({page}) => {
+  await page.locator('[data-view="settings"]').click();
+  await expect(page.locator('#platform-status')).toContainText('API 1');
+  await page.locator('#profile-id').fill('browser-local');
+  await page.locator('#profile-name').fill('Model kiểm thử');
+  await page.locator('#profile-model').fill('qwen3:4b');
+  await page.locator('#model-profile-form button[type="submit"], #model-profile-form button:not([type])').click();
+  await expect(page.locator('#model-profile-status')).toContainText('phiên bản 1');
+  await page.locator('[data-view="team"]').click();
+  await page.locator('[data-bot-id="result"]').getByRole('button',{name:'Thiết lập bot',exact:true}).click();
+  await expect(page.locator('#save-bot')).toBeEnabled();
+  await page.locator('#bot-model-ollama').selectOption('browser-local');
+  await page.locator('#save-bot').click();
+  await expect(page.locator('#bot-save-status')).toContainText('Đã lưu');
+  await page.locator('#close-bot').click();
+  await page.locator('[data-view="settings"]').click();
+  await page.locator('#project-id').fill('browser-project');
+  await page.locator('#project-name').fill('Dự án kiểm thử');
+  await page.locator('#project-memory').fill('Giữ bộ nhớ riêng');
+  await page.locator('#project-profile-form button').click();
+  await expect(page.locator('#project-profile-status')).toContainText('Đã lưu');
+  await page.locator('[data-view="workspace"]').click();
+  await page.locator('#task-project').selectOption('browser-project');
+  await page.locator('#task-template').selectOption('data');
+  await page.locator('#mode').selectOption('ollama');
+  await page.locator('#prompt').fill('Kiểm thử sinh từng tệp trên trình duyệt');
+  await page.locator('#submit').click();
+  await expect(page.locator('#inspector-status')).toContainText('AI đánh giá đạt');
+  await page.locator('#run-workspace summary').click();
+  await expect(page.locator('#run-config')).toContainText('browser-project/');
+  await expect(page.locator('#run-config')).toContainText('browser-local v1');
+  await page.locator('[data-view="settings"]').click();
+  await page.locator('#profile-picker').selectOption('browser-local');
+  await page.locator('#profile-model').fill('changed-model');
+  await page.locator('#model-profile-form button:not([type])').click();
+  await expect(page.locator('#model-profile-status')).toContainText('phiên bản 2');
+  await page.locator('[data-view="workspace"]').click();
+  await expect(page.locator('#run-config')).toContainText('browser-local v1');
+  await expect(page.locator('#run-config')).not.toContainText('changed-model');
+});
+
+test('product checks report unsupported web execution and unknown commands stay actionable', async ({page}) => {
+  await page.evaluate(() => window.WorkspaceUI.openTask('web-preview-fixture'));
+  await page.locator('#run-workspace summary').click();
+  await page.locator('#run-product-tests').click();
+  await expect(page.locator('#run-tests-status')).toContainText('not_supported');
+  await expect(page.locator('#run-checks-output')).toContainText('Chưa có tệp unittest Python');
+  await page.locator('#prompt').fill('/tdd something');
+  await page.locator('#submit').click();
+  await expect(page.locator('#error')).toContainText('Lệnh chưa hỗ trợ');
+  await expect(page.locator('#prompt')).toHaveValue('/tdd something');
+});

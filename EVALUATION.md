@@ -1,5 +1,10 @@
 # Đánh giá chất lượng sinh sản phẩm
 
+Từ 0.2, mỗi lượt đánh giá cũng chụp hồ sơ model và nguồn ECC như nhiệm vụ
+mới, lưu metadata trong báo cáo. CLI vẫn dùng SQLite tạm và mặc định không
+chạy sản phẩm; cấu hình Docker trong app không được tự lấy vào bộ đánh giá.
+Runner Python trong ứng dụng được mô tả ở docs/CAP_NHAT_0_2.md.
+
 Bộ đánh giá có 9 ca cố định trong evaluation_cases.py, gồm JSON cơ bản,
 Unicode, escaping; Python cơ bản, lưu trữ, Unicode; web ghi chú, mobile,
 tìm kiếm. Các ca Python/web thay đổi yêu cầu nhưng hiện chỉ kiểm tra tĩnh;

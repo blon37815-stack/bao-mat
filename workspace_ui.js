@@ -443,6 +443,7 @@
         " · " +
         task.stage +
         (task.mode === "demo" ? " · MÔ PHỎNG" : "");
+      window.dispatchEvent(new CustomEvent("workspace:task", { detail: task }));
       $("#inspector-error").textContent = "";
       $("#save-product").disabled = true;
       $("#editor-state").textContent = "Bản gốc được giữ nguyên.";
@@ -837,6 +838,17 @@
         kind.className = "bot-kind";
         top.append(avatar, kind);
         card.append(top, el("h3", bot.name), el("p", bot.description));
+        if (bot.configurable) {
+          card.append(
+            el(
+              "small",
+              "Ollama: " +
+                (bot.model_bindings?.ollama || "mặc định") +
+                " · OpenAI: " +
+                (bot.model_bindings?.ai || "mặc định"),
+            ),
+          );
+        }
         if (bot.name !== bot.default_name)
           card.append(el("small", "Vai trò: " + bot.default_name));
         const current = data.active.filter(
@@ -901,19 +913,28 @@
       botsLoading = false;
     }
   }
-  function editBot(bot) {
+  async function editBot(bot) {
     editedBot = bot;
     $("#bot-dialog-title").textContent = "Thiết lập · " + bot.name;
     $("#bot-name").value = bot.name;
     $("#bot-instructions").value = bot.instructions;
     $("#bot-description").textContent = bot.description;
     $("#bot-save-status").textContent = "";
+    $("#save-bot").disabled = true;
     $("#bot-dialog").showModal();
+    try {
+      await window.PlatformUI?.fillBindings(bot);
+      $("#save-bot").disabled = false;
+    } catch (error) {
+      $("#bot-save-status").textContent = error.message;
+    }
   }
   $("#close-bot").onclick = () => $("#bot-dialog").close();
   $("#reset-bot").onclick = () => {
     $("#bot-name").value = editedBot.default_name;
     $("#bot-instructions").value = "";
+    $("#bot-model-ollama").value = "";
+    $("#bot-model-ai").value = "";
   };
   $("#bot-form").onsubmit = async (event) => {
     event.preventDefault();
@@ -925,6 +946,10 @@
           id: editedBot.id,
           name: $("#bot-name").value,
           instructions: $("#bot-instructions").value,
+          model_bindings: {
+            ollama: $("#bot-model-ollama").value,
+            ai: $("#bot-model-ai").value,
+          },
         }),
       });
       const data = await response.json();

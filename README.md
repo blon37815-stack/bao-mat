@@ -7,11 +7,19 @@ trò; SQLite lưu dữ liệu. Ollama mặc định dùng `qwen3:4b` trên cùng
 Nhiệm vụ mới có thể dùng một chuyên gia cấp trên thích ứng từ ECC để giao
 việc cho ba vai trò. Bộ quản lý phân công và giới hạn lượt gọi do mã thực
 thi; bảng tài nguyên đọc CPU/RAM và GPU nếu có hỗ trợ. ECC không tự cung
-cấp mô hình mạnh hơn: chuyên gia và đội thực thi dùng mô hình bạn chọn.
+cấp mô hình mạnh hơn: từng vai trò dùng hồ sơ model bạn chọn cho chế độ
+Ollama hoặc OpenAI, mặc định dùng chung model.
 
-Đây là công cụ tạo nội dung và bộ tệp. App chưa chạy chương trình do bot
-viết, chưa có Docker/sandbox, tự sửa mã ứng dụng đang chạy hoặc triển khai.
+Đây là công cụ tạo nội dung và bộ tệp. Có kiểm thử unittest Python trong
+Docker khi chủ động bật hoặc bấm chạy; chưa chạy web/backend tương tác,
+tự sửa mã ứng dụng đang chạy hoặc triển khai sản phẩm.
 CrewAI, Letta và OpenHands chưa được tích hợp.
+
+Hiện trạng và thiết kế để mở rộng bot/model, tách workspace và cập nhật có
+phục hồi được lưu trong [Nền tảng bot](docs/NEN_TANG_BOT.md). Tài liệu phân
+biệt chức năng đã có với các phần cần xây, kèm tiêu chí kiểm chứng từng đợt.
+Hướng dẫn phần đã triển khai trong bản `0.2.0-dev`:
+[Dự án, model, Docker và phục hồi](docs/CAP_NHAT_0_2.md).
 
 ## Cài, chạy và cập nhật trên Windows
 
@@ -40,13 +48,17 @@ Cập nhật: dừng app bằng **Ctrl+C**, nhập **Y** nếu Windows hỏi d�
 mở **cap-nhat.bat**, chọn Y để chạy lại và **Ctrl+F5** trên trình duyệt.
 Updater fetch và fast-forward nhánh hiện tại (`main` hoặc
 `feat/bot-team-dashboard`); dừng nếu có thay đổi/tệp chưa được quản lý.
-Requirements đổi thì cài lại phụ thuộc. Nếu cài thất bại, chạy cai-dat.bat.
+Requirements đổi thì chuẩn bị môi trường riêng trước khi đổi mã. Nếu chuẩn
+bị thất bại, giữ bản hiện tại; xem thông báo và gói phục hồi trước khi thử lại.
 
 Nếu nhánh feature bị xóa, chỉ tự chuyển main khi HEAD là tổ tiên của
 origin/main. Gộp bằng **Create a merge commit** để giữ quan hệ này; squash/
-rebase có thể khiến updater dừng để kiểm tra. Updater chưa tự sao lưu dữ
-liệu trước cập nhật; dùng nút sao lưu trước khi cần. Không tự reset hoặc
-xóa thay đổi cục bộ, không tự xóa dữ liệu trong data.
+rebase có thể khiến updater dừng để kiểm tra. Updater mới tự lưu gói mã +
+SQLite trước khi thay mã, thử import/khởi tạo đồ thị và migration trên bản
+sao dữ liệu. Phụ thuộc đổi được cài vào môi trường riêng, giữ `.venv` cũ.
+`phuc-hoi.bat` tạo bản phục hồi ở thư mục mới; không tự chuyển về bản cũ.
+Không tự reset/xóa thay đổi cục bộ hoặc xóa dữ liệu trong data. Lần đầu kéo
+bản mới bằng updater cũ vẫn cần sao lưu thủ công trước khi cập nhật.
 
 ## Giao việc và chọn mẫu
 
@@ -157,8 +169,10 @@ chưa chạm giới hạn riêng. Mặc định là 20 lượt cho toàn bộ m�
 
 Bộ kiểm tra cú pháp có thời hạn tổng 8 giây. Lỗi được đưa vào vòng sửa kể
 cả AI tự đánh giá đạt. Không có tệp được hỗ trợ hoặc checker không hoàn tất
-thì cần người xem. Chưa kiểm tra chức năng, import/dependency, tính an toàn
-của mã, JSX/TypeScript hoặc HTML/CSS đầy đủ.
+thì cần người xem. Kiểm tra tĩnh không xác minh chức năng, import/dependency,
+tính an toàn, JSX/TypeScript hoặc HTML/CSS đầy đủ. Runner Docker tùy chọn
+chạy unittest Python và đưa lỗi vào vòng sửa; không có test hoặc thiếu
+Docker thì ghi rõ chưa kiểm thử. Chưa có runner trình duyệt cho web.
 
 AI review dùng passed (boolean), issues (danh sách); file_issues theo tệp là
 tùy chọn. Nhận xét cũ không được biến thành quy tắc mới của reviewer. Sai
@@ -243,8 +257,11 @@ trình duyệt có nhắc khi rời trang. Khung web không phải môi trườn
 
 Bộ nhớ chung tối đa 8000 ký tự, gửi kèm các bước đến nhà cung cấp được chọn.
 Mỗi nhiệm vụ giữ bản sao lúc tạo. Sửa bộ nhớ chỉ ảnh hưởng việc mới; để
-trống rồi lưu để xóa bộ nhớ chung. Chưa tự học, chưa phân tách nhiều dự án
-hoặc tìm kiếm kiến thức bằng FTS5. Không nhập khóa/mật khẩu vào bộ nhớ.
+trống rồi lưu để xóa bộ nhớ chung. Thiết lập → Nền tảng cho tạo dự án với
+bộ nhớ riêng; chọn dự án khi giao việc và lọc trong Công việc. Tệp, lịch sử
+và workspace logic lưu theo mã nhiệm vụ trong SQLite. Thư viện tài liệu
+vẫn dùng chung, chỉ gửi tài liệu được chọn. Chưa tự học hoặc tìm kiến thức
+bằng FTS5. Không nhập khóa/mật khẩu vào bộ nhớ.
 
 Tìm theo yêu cầu/mã trên toàn bộ SQLite, kết hợp bộ lọc trạng thái, phân
 trang 50. Không phân biệt hoa thường; vẫn phân biệt dấu tiếng Việt; chưa
@@ -299,9 +316,12 @@ bản. Không tự dùng Opus/Sonnet, không cài hook/MCP hoặc bật quyền 
 
 Nguồn ECC ghim commit 76aaa77df6adc5b889e689007bf99b9a4f74af34. Giữ 5 bản
 định nghĩa gốc, LICENSE MIT, hash và nguồn trong third_party/ecc. App dùng
-bản thích ứng tiếng Việt ở expert_team.py; không nạp tự động các Markdown
-gốc làm chỉ dẫn hoặc chạy script upstream. Chỉ đạo được yêu cầu ngắn; quá
-6000 ký tự sẽ rút gọn và đánh dấu để tránh kéo dài context.
+bản thích ứng tiếng Việt ở expert_team.py và bản tham khảo đầy đủ của đúng
+vai trò đã chọn. Khi giao việc, xác minh hash, chụp nội dung/commit nguồn
+vào task_runtime rồi gửi bước chuyên gia; không thực thi hook/script hay
+cấp công cụ từ Markdown. Chạy lại giữ bản tham khảo đã chụp. Chỉ đạo được
+yêu cầu ngắn; quá 6000 ký tự sẽ rút gọn và đánh dấu. Nhiệm vụ cũ chưa có
+bản chụp vẫn dùng luồng tương thích cũ, không gán ngược nguồn/model giả.
 
 Ngân sách do SQLite chặn nguyên tử trước mỗi lượt gọi. Tính cả chuyên gia,
 lập kế hoạch, sinh từng tệp và kiểm tra, kể cả yêu cầu lỗi đã bắt đầu. Khi
@@ -322,7 +342,8 @@ chưa đọc được, không giả là 0%. Không gửi số đo tới bên th�
 
 Các số đo chỉ để quan sát; app không đặt giới hạn cứng CPU/RAM/GPU, tự hạ
 xung hoặc kết thúc tiến trình khác. Muốn hạn mức phần cứng khi chạy mã sinh
-ra cần Docker/sandbox ở bước sau. API: GET /api/experts, GET /api/resources;
+ra dùng runner Docker tùy chọn của bản này; hạn mức đó không áp dụng lên
+Ollama. API: GET /api/experts, GET /api/resources;
 POST /api/resource-policy nhận default_call_limit và max_waiting, cần token.
 POST /api/tasks nhận expert (auto/none hoặc id hồ sơ) và call_limit;
 POST /api/tasks/{id}/retry có thể nhận call_limit mới.

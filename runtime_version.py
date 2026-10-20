@@ -4,13 +4,13 @@ import hashlib
 from pathlib import Path
 import subprocess
 
-APP_VERSION = '0.1.0-dev'
+APP_VERSION = '0.2.0-dev'
 ROOT = Path(__file__).resolve().parent
 
 
 def startup_info():
     digest = hashlib.sha256()
-    paths = [*ROOT.glob('*.py'),*(ROOT/name for name in ('index.html','app.js','resource_ui.js','workspace_ui.js','styles.css','requirements.txt'))]
+    paths = [*ROOT.glob('*.py'), *ROOT.glob('*.js'), *(ROOT/name for name in ('index.html','styles.css','requirements.txt'))]
     for path in sorted(paths):
         digest.update(path.name.encode('utf-8')+b'\0'+path.read_bytes()+b'\0')
     commit,dirty = 'unknown',None
@@ -21,7 +21,7 @@ def startup_info():
                                    check=True,capture_output=True,text=True,timeout=2).stdout.strip())
     except (OSError,subprocess.SubprocessError):
         pass
-    return {'version':APP_VERSION,'commit':commit,'dirty_at_start':dirty,'source_digest':digest.hexdigest(),
+    return {'version':APP_VERSION,'api_version':1,'schema_version':1,'commit':commit,'dirty_at_start':dirty,'source_digest':digest.hexdigest(),
             'started_at':datetime.now(timezone.utc).isoformat()}
 
 

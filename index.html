@@ -8,6 +8,7 @@
     <script defer src="/app.js"></script>
     <script defer src="/resource_ui.js"></script>
     <script defer src="/workspace_ui.js"></script>
+    <script defer src="/platform_ui.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Đến nội dung chính</a>
@@ -170,8 +171,8 @@
                 <p id="error" role="alert"></p>
               </form>
               <small
-                >Đội bot tạo nội dung và bộ tệp; chưa tự thực thi, cài đặt hoặc
-                triển khai sản phẩm.</small
+                >Đội bot tạo nội dung và bộ tệp. Có kiểm thử Python trong Docker
+                khi bật; chưa tự cài đặt hoặc triển khai sản phẩm.</small
               >
             </section>
             <button id="open-tasks" class="secondary workspace-shortcut">
@@ -638,6 +639,14 @@
       </div>
       <p id="bot-description"></p>
       <form id="bot-form">
+        <label for="bot-model-ollama">Hồ sơ model khi dùng Ollama</label>
+        <select id="bot-model-ollama">
+          <option value="">Theo mặc định</option>
+        </select>
+        <label for="bot-model-ai">Hồ sơ model khi dùng OpenAI</label>
+        <select id="bot-model-ai">
+          <option value="">Theo mặc định</option>
+        </select>
         <label for="bot-name">Tên hiển thị</label
         ><input id="bot-name" type="text" maxlength="60" required /><label
           for="bot-instructions"
@@ -648,8 +657,8 @@
           placeholder="Ví dụ: Viết giải thích ngắn bằng tiếng Việt, ưu tiên thư viện chuẩn…"
         ></textarea>
         <p class="hint">
-          Áp dụng cho nhiệm vụ mới. Bot vẫn giữ vai trò, mô hình và giới hạn của
-          đội.
+          Áp dụng cho nhiệm vụ mới. Nhiệm vụ đã giao giữ cấu hình cũ. Chế độ
+          Ollama không tự chuyển sang OpenAI.
         </p>
         <button id="save-bot">Lưu thiết lập bot</button
         ><button type="button" id="reset-bot" class="secondary">

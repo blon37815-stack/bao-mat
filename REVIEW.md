@@ -7,6 +7,15 @@ gói ghi commit và SHA-256 từng tệp để đối chiếu; file này không 
 
 ## Phần mới cần xem
 
+Đợt nền tảng `0.2.0-dev`: xem `docs/CAP_NHAT_0_2.md`. `platform_config.py`
+lưu hồ sơ model/revision, dự án và task_runtime; `platform_ui.js` giữ nền
+giao diện và thêm thiết lập. `product_runner.py`/`sandbox_worker.py` chỉ
+chạy sản phẩm trong Docker có giới hạn, không fallback host. `release_support.py`,
+`launch_app.py`, `restore_app.py` chuẩn bị bản đích trên dữ liệu sao chép,
+sao lưu mã/SQLite và phục hồi sang thư mục mới. `task_commands.py` chỉ nối
+6 lệnh công khai, không giả lập toàn bộ ECC. Các đoạn dưới mô tả đợt trước;
+README và hướng dẫn 0.2 là hiện trạng mới hơn.
+
 Đợt tách Công việc: task_deletion.py/app.py lưu ZIP trước xóa, so fingerprint
 trước/sau sao lưu và xóa một việc trong transaction. Phiên bản khác giữ
 bản chụp nguồn; deleted_tasks chỉ đánh dấu liên kết còn lại. Danh sách mới

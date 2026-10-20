@@ -8,7 +8,7 @@ if not exist ".venv\Scripts\python.exe" (
     pause
     exit /b 1
 )
-".venv\Scripts\python.exe" update_app.py
+".venv\Scripts\python.exe" launch_app.py update
 if errorlevel 1 (
     pause
     exit /b 1

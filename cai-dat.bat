@@ -10,6 +10,8 @@ if errorlevel 1 goto install_error
 ".venv\Scripts\python.exe" -m pip check
 if errorlevel 1 goto install_error
 echo.
+".venv\Scripts\python.exe" launch_app.py reset-environment
+if errorlevel 1 goto install_error
 echo Cai dat thanh cong. Mo chay.bat de khoi dong.
 pause
 exit /b 0

@@ -1316,3 +1316,21 @@ dialog::backdrop {
     right: 10px;
   }
 }
+/* Platform controls share the existing navigation and product inspector. */
+#model-profile-form,
+#project-profile-form {
+  display: grid;
+  gap: 0.6rem;
+  max-width: 48rem;
+  margin-block: 1rem;
+}
+#run-workspace {
+  margin-block: 1rem;
+}
+#run-config,
+#run-checks-output {
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

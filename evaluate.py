@@ -93,6 +93,8 @@ def run_evaluation(cases, repeat, output, expert='none', call_limit=20):
                         db.execute('INSERT INTO task_requirements VALUES (?,?)',(task_id,json.dumps(template_requirements(case['template']),ensure_ascii=False)))
                         selected=resolve_expert(expert,case['template'])
                         db.execute('INSERT INTO task_assignment VALUES (?,?,?,?)',(task_id,selected,call_limit,ECC_COMMIT if selected!='none' else ''))
+                        app.workspace_data.snapshot_bots(db, task_id)
+                        app.platform_config.snapshot(db, task_id, 'ollama', expert=selected, app_version=RUNTIME_INFO)
                     print(f"{case['id']} {number}/{repeat}",flush=True)
                     started = time.monotonic()
                     trial = {'case_id':case['id'],'template':case['template'],'repeat':number,'task_id':task_id}
@@ -104,6 +106,7 @@ def run_evaluation(cases, repeat, output, expert='none', call_limit=20):
                         raise
                     with app.connect() as db:
                         row = db.execute(app.TASK_SELECT+' WHERE t.id=?',(task_id,)).fetchone()
+                        runtime = app.platform_config.public_runtime(app.platform_config.task_runtime(db, task_id))
                     task = app.public_task(row)
                     check = inspect_result(json.loads(task['output']).get('result',''),case)
                     _,history = app.task_history(task_id)
@@ -111,7 +114,7 @@ def run_evaluation(cases, repeat, output, expert='none', call_limit=20):
                     trial.update(status=task['status'],passed=check['passed'] and task['status']=='completed',
                                  first_pass=inspect_result(first,case)['passed'] if first else False,
                                  issues=check['issues'],checked=check['checked'],skipped=check['skipped'],
-                                 calls=task['model_calls'],seconds=round(time.monotonic()-started,3))
+                                 calls=task['model_calls'],seconds=round(time.monotonic()-started,3), runtime=runtime)
                     report['trials'].append(trial)
                     checkpoint(output,report)
                     print('  '+('Đạt tĩnh và luồng' if trial['passed'] else 'Chưa đạt')+f" · {trial['seconds']} giây · {trial['calls']} yêu cầu",flush=True)

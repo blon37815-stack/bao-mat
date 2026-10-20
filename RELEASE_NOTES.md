@@ -1,3 +1,41 @@
+# 0.2.0-dev — Nền cấu hình, workspace và cập nhật
+
+- Hồ sơ model có revision, giới hạn đầu vào/đầu ra/thời hạn; phân công theo
+  từng vai trò và chế độ Ollama/OpenAI, không tự chuyển nhà cung cấp.
+- Dự án và bộ nhớ riêng, lọc công việc theo dự án. Snapshot lưu model,
+  hướng dẫn bot, nguồn ECC, phiên bản ứng dụng và chế độ kiểm thử; chạy lại
+  giữ cấu hình đã chụp. Việc cũ ghi rõ thiếu metadata, không gán ngược model.
+- Nạp bản tham khảo ECC đầy đủ cho chuyên gia được chọn sau khi kiểm hash;
+  không chạy hook/script. Có bộ xử lý `/plan`, `/python`, `/web`, `/data`,
+  `/code-review`, `/verify`; các lệnh khác báo chưa hỗ trợ.
+- Runner unittest Python trong Docker: mạng tắt, không root, nguồn/root
+  chỉ đọc, 256 MiB RAM, 1 CPU, 64 PID, thời hạn và đầu ra có giới hạn.
+  Chạy riêng hoặc bật cho nhiệm vụ mới; lỗi được đưa vào vòng sửa. Thiếu
+  Docker/test hoặc loại tệp chưa hỗ trợ không được ghi là kiểm thử đạt.
+- Workspace logic theo nhiệm vụ/vai trò trong SQLite, báo cáo thực thi và
+  cấu hình ngay trong khung sản phẩm. Vẫn dùng nền giao diện và điều hướng cũ.
+- Updater khóa cùng app, lưu mã/SQLite trước cập nhật, thử bản đích và
+  migration trên bản sao trước fast-forward. Dependency đổi được chuẩn bị
+  trong môi trường riêng; launcher giữ `.venv` cũ. Có `phuc-hoi.bat` tạo
+  thư mục phục hồi mới và BAT khởi động dùng đúng dữ liệu của bản phục hồi.
+- Ctrl+C tạm dừng hàng đợi, phát tín hiệu hủy việc và giữ trạng thái gián
+  đoạn để chạy lại; asset/API no-store giảm việc dùng nhầm giao diện cũ.
+
+Kiểm chứng cục bộ ngày 20/10/2026: **142 unittest đạt** với LangGraph thật,
+trong đó 4 ca thực thi Docker thật và các ca provider giả lập; **18 luồng
+Chromium đạt** trên Linux. Đã thử hủy vòng lặp vô hạn, chặn mạng/ghi nguồn,
+stdout quá lớn, không có test, model đổi khi việc chờ, migration trên bản
+sao, mã đích hỏng và khôi phục source/SQLite; đã thử tạo môi trường riêng
+khi requirements đổi. `pip check`, cú pháp Python/JavaScript và Prettier đạt.
+Thêm job CI Ubuntu cho Docker; chưa xác nhận kết quả CI từ xa hoặc chạy
+Windows/Ollama thật, chưa gộp PR.
+
+Chưa có toàn bộ ECC, runner web, thư mục bền vững/công cụ shell cho từng
+bot, tự tối ưu RAM/VRAM của Ollama, dọn môi trường cũ theo dung lượng hoặc
+rollback tự động. Hướng dẫn: [docs/CAP_NHAT_0_2.md](docs/CAP_NHAT_0_2.md).
+
+Các ghi chú dưới đây mô tả những đợt trước.
+
 # Đợt tách công việc và xóa từng việc
 
 - Công việc có mục/biểu tượng riêng trên thanh bên, không đặt danh sách

@@ -31,6 +31,7 @@ function el(tag, text) {
 let sessionToken;
 let budgetTouched = false;
 let selectedDocuments = [];
+let selectedProject = "default";
 const expertNames = {
   planner: "ECC · Lập kế hoạch",
   architect: "ECC · Kiến trúc",
@@ -505,6 +506,7 @@ function currentDraft() {
     template: document.querySelector("#task-template").value,
     expert: document.querySelector("#expert").value,
     document_ids: [...selectedDocuments],
+    project_id: selectedProject,
     call_limit: Number(document.querySelector("#call-limit").value),
   };
 }
@@ -533,6 +535,11 @@ function restoreDraft() {
     )
       return;
     document.querySelector("#prompt").value = saved.prompt;
+    if (
+      typeof saved.project_id === "string" &&
+      /^[a-zA-Z0-9_-]{1,64}$/.test(saved.project_id)
+    )
+      selectedProject = saved.project_id;
     if (Array.isArray(saved.document_ids))
       selectedDocuments = saved.document_ids
         .filter((id) => typeof id === "string")
@@ -623,6 +630,9 @@ async function beginRevision(task) {
     const data = await response.json();
     if (!response.ok) throw Error(data.error);
     parentTask = task.id;
+    selectedProject = task.project_id || task.runtime?.project_id || "default";
+    if (document.querySelector("#task-project"))
+      document.querySelector("#task-project").value = selectedProject;
     document.querySelector("#task-template").value = "";
     document.querySelector("#product").checked = true;
     document.querySelector("#mode").value = task.mode;
@@ -1053,6 +1063,8 @@ async function refresh() {
       offset: String(pageOffset),
       compact: "1",
     });
+    if (document.querySelector("#project-filter")?.value)
+      params.set("project_id", document.querySelector("#project-filter").value);
     const [teamResponse, response] = await Promise.all([
       apiFetch("/api/team"),
       listingVisible ? apiFetch("/api/tasks?" + params) : Promise.resolve(null),

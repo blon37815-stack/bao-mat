@@ -27,15 +27,17 @@ def request_timeout():
     return value
 
 
-def request_completion(messages, model, base_url, cancelled=None):
+def request_completion(messages, model, base_url, cancelled=None, *, timeout=None, options=None):
     """Own the request process so even a stalled stream can be cancelled."""
     if cancelled is not None and cancelled.is_set():
         raise InferenceCancelled()
-    timeout = request_timeout()
+    timeout = request_timeout() if timeout is None else timeout
+    if not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 1 <= timeout <= 7200:
+        raise ValueError('Ollama timeout must be between 1 and 7200')
     process = subprocess.Popen([sys.executable, '-I', str(Path(__file__).resolve())],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, encoding='utf-8')
-    payload = json.dumps({'messages':messages, 'model':model, 'base_url':base_url,'timeout':timeout}, ensure_ascii=True)
+    payload = json.dumps({'messages':messages, 'model':model, 'base_url':base_url,'timeout':timeout,'options':options or {}}, ensure_ascii=True)
     deadline = time.monotonic()+timeout
     try:
         while True:
@@ -64,6 +66,8 @@ def request_completion(messages, model, base_url, cancelled=None):
 
 def stream_request(settings):
     payload = {'model':settings['model'], 'messages':settings['messages'], 'stream':True, 'think':False}
+    if settings.get('options'):
+        payload['options'] = settings['options']
     request = urllib.request.Request(settings['base_url'].rstrip('/')+'/api/chat',
         data=json.dumps(payload).encode('utf-8'), headers={'Content-Type':'application/json'})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))

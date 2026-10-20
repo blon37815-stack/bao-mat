@@ -1,6 +1,7 @@
 """Bounded documents and bot preferences; no filesystem or provider access."""
 import json
 import uuid
+import hashlib
 
 from expert_team import EXPERTS
 
@@ -38,6 +39,8 @@ def bot_catalog(db):
         bot['default_name']=bot['name']
         if bot['id'] in custom and bot['configurable']:
             bot.update(name=custom[bot['id']]['name'],instructions=custom[bot['id']]['instructions'])
+        bot['profile_version'] = hashlib.sha256(json.dumps({'id':bot['id'], 'name':bot['name'], 'instructions':bot['instructions'],
+            'role':bot['description'], 'source':EXPERTS.get(bot['id'], {})}, sort_keys=True, ensure_ascii=True).encode()).hexdigest()[:12]
     return bots
 
 
@@ -53,7 +56,7 @@ def save_bot(db, bot_id, name, instructions):
 
 
 def snapshot_bots(db, task_id):
-    settings={bot['id']:{'name':bot['name'],'instructions':bot['instructions']} for bot in bot_catalog(db) if bot['configurable']}
+    settings={bot['id']:{'name':bot['name'],'instructions':bot['instructions'],'profile_version':bot['profile_version']} for bot in bot_catalog(db) if bot['configurable']}
     db.execute('INSERT INTO task_bot_preferences VALUES (?,?)',(task_id,json.dumps(settings,ensure_ascii=False)))
 
 
