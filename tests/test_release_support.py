@@ -109,7 +109,7 @@ class ReleaseTest(unittest.TestCase):
         executable = self.client/pointer['python_relative']
         self.assertTrue(executable.is_file())
         self.assertTrue(pointer['python_relative'].startswith('.runtime-envs'))
-        self.assertEqual(pointer['requirements_sha256'], hashlib.sha256((self.client/'requirements.txt').read_bytes()).hexdigest())
+        self.assertEqual(pointer['requirements_sha256'], hashlib.sha256((self.client/'requirements.txt').read_bytes().replace(b'\r\n', b'\n')).hexdigest())
         with closing(sqlite3.connect(self.database)) as db, db:
             self.assertEqual(db.execute('SELECT content FROM memories').fetchone()[0], 'Bộ nhớ cần giữ')
 
@@ -135,4 +135,27 @@ class ReleaseTest(unittest.TestCase):
             releases.atomic_json(pointer, {'requirements_sha256':sha,'python_relative':'../escape'})
             with self.assertRaises(ValueError): launch_app.selected_python()
             releases.atomic_json(pointer, {'requirements_sha256':'bad','python_relative':str(target.relative_to(self.client))})
+            with self.assertRaises(ValueError): launch_app.selected_python()
+
+    def test_windows_checkout_newlines_do_not_rebuild_or_invalidate_environment(self):
+        wanted = b'# Existing dependencies, only Git line endings differ\n'
+        (self.seed/'requirements.txt').write_bytes(wanted)
+        self.commit('existing dependencies'); self.git('push', cwd=self.seed)
+        self.git('config', 'core.autocrlf', 'true', cwd=self.client)
+        self.git('pull', '--ff-only', cwd=self.client)
+        self.assertEqual((self.client/'requirements.txt').read_bytes(), wanted.replace(b'\n', b'\r\n'))
+        (self.seed/'README.md').write_text('Documentation update')
+        (self.seed/'.gitattributes').write_bytes(b'requirements.txt text eol=lf\n')
+        self.commit('documentation'); self.git('push', cwd=self.seed)
+        with patch.object(update_app, 'ROOT', self.client), patch.dict(os.environ, {'BOT_DB':str(self.database)}):
+            self.assertEqual(update_app.main(), 0)
+        self.assertFalse((self.client/'.runtime-envs').exists())
+        target = self.client/'.runtime-envs'/'fixture'/('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
+        target.parent.mkdir(parents=True); target.write_text('fixture')
+        pointer = self.client/'data'/'runtime-environment.json'
+        releases.atomic_json(pointer, {'requirements_sha256':hashlib.sha256(wanted).hexdigest(),
+                                      'python_relative':str(target.relative_to(self.client))})
+        with patch.object(launch_app, 'ROOT', self.client), patch.object(launch_app, 'POINTER', pointer):
+            self.assertEqual(launch_app.selected_python(), str(target))
+            (self.client/'requirements.txt').write_bytes(wanted+b'different-package==1\r\n')
             with self.assertRaises(ValueError): launch_app.selected_python()

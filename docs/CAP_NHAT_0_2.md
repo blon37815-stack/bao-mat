@@ -81,6 +81,8 @@ Bộ cập nhật mới:
 5. Thử import, khởi tạo đồ thị và mở/migration trên bản sao SQLite. Nếu lỗi, dừng trước fast-forward, giữ mã và dữ liệu hiện tại.
 6. Fast-forward mã; launcher trỏ đến môi trường đã chuẩn bị khi dependency đổi. Ghi thông tin bản trước/sau và gói phục hồi trong `data/updates/last-update.json` (hoặc updates cạnh `BOT_DB`).
 
+Updater và launcher cùng tính hash `requirements.txt` sau khi chuẩn hóa CRLF thành LF. Git đổi kiểu xuống dòng không bị coi là thay thư viện hoặc làm môi trường đã chuẩn bị mất hiệu lực; nội dung dependency đổi vẫn được kiểm tra.
+
 Khởi động app cập nhật schema từ 0 lên 1 bằng các bảng mới, giữ bảng/dữ liệu cũ. App từ chối cơ sở dữ liệu có `user_version` cao hơn phiên bản hỗ trợ. Thử migration trước không thay thế sao lưu hoặc kiểm thử nâng cấp thực tế.
 
 Nếu cần phục hồi: dừng app, chạy **phuc-hoi.bat**, nhập ZIP `update-...` và một đường dẫn thư mục mới. Công cụ kiểm hash rồi khôi phục mã + SQLite vào đó; không ghi đè thư mục đang dùng. Chạy `cai-dat.bat`, rồi **chay-phuc-hoi.bat** trong bản phục hồi. BAT này đặt đúng `BOT_DB` của bản phục hồi, kể cả khi máy đang có biến trỏ tới dữ liệu cũ. Cấu hình lại bí mật qua môi trường khi cần. Bản phục hồi không có `.git`; không dùng `cap-nhat.bat` ở đó.

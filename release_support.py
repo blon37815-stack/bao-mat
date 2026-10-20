@@ -17,6 +17,11 @@ import uuid
 import zipfile
 
 
+def requirements_hash(path):
+    """Git's LF/CRLF checkout conversion does not change dependencies."""
+    return hashlib.sha256(Path(path).read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+
+
 @contextmanager
 def application_lock(database):
     path = Path(database).parent/'.bao-mat.lock'
@@ -173,15 +178,15 @@ def prepare_release(root, ref, database):
         source = Path(staging)/'source'
         source.mkdir()
         extract_source(raw, source)
-        current = (root/'requirements.txt').read_bytes()
-        wanted = (source/'requirements.txt').read_bytes()
+        current = requirements_hash(root/'requirements.txt')
+        wanted = requirements_hash(source/'requirements.txt')
         python = Path(sys.executable)
         environment = None
         try:
             if wanted != current:
                 if shutil.disk_usage(root).free < 500_000_000:
                     raise ValueError('Can toi thieu 500 MB trong de chuan bi moi truong moi; chua doi ma')
-                environment = root/'.runtime-envs'/(hashlib.sha256(wanted).hexdigest()[:16]+'-'+uuid.uuid4().hex[:8])
+                environment = root/'.runtime-envs'/(wanted[:16]+'-'+uuid.uuid4().hex[:8])
                 subprocess.run([sys.executable, '-m', 'venv', str(environment)], check=True, timeout=90)
                 python = environment/('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
                 install_environment = dict(os.environ, PIP_DISABLE_PIP_VERSION_CHECK='1')
@@ -197,7 +202,7 @@ def prepare_release(root, ref, database):
             settings = dict(os.environ, BOT_DB=str(trial))
             subprocess.run([str(python), '-I', '-c', probe], cwd=source, env=settings,
                            check=True, capture_output=True, timeout=90)
-            return {'python':str(python), 'requirements_sha256':hashlib.sha256(wanted).hexdigest(),
+            return {'python':str(python), 'requirements_sha256':wanted,
                     'isolated_environment':str(environment) if environment else None}
         except BaseException:
             if environment is not None:

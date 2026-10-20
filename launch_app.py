@@ -1,10 +1,10 @@
 """Select the dependency environment prepared by the updater without replacing .venv."""
-import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+from release_support import requirements_hash
 
 ROOT = Path(__file__).resolve().parent
 POINTER = ROOT/'data'/'runtime-environment.json'
@@ -14,7 +14,7 @@ def selected_python():
     if not POINTER.exists():
         return sys.executable
     value = json.loads(POINTER.read_text(encoding='utf-8'))
-    if value['requirements_sha256'] != hashlib.sha256((ROOT/'requirements.txt').read_bytes()).hexdigest():
+    if value['requirements_sha256'] != requirements_hash(ROOT/'requirements.txt'):
         raise ValueError('Moi truong va requirements khong khop. Chay cai-dat.bat de cai lai va dat lai moi truong.')
     relative = Path(value['python_relative'])
     if relative.is_absolute() or '..' in relative.parts or not relative.parts or relative.parts[0] != '.runtime-envs':

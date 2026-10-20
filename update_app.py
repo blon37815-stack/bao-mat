@@ -1,10 +1,10 @@
 """Update the existing checkout without discarding local work."""
-import hashlib
 from pathlib import Path
 import subprocess
 import sys
 import os
 from release_support import application_lock, atomic_json, recovery_bundle, prepare_release
+from release_support import requirements_hash as dependency_hash
 
 
 ROOT = Path(__file__).resolve().parent
@@ -16,7 +16,7 @@ def git(*args):
 
 
 def requirements_hash():
-    return hashlib.sha256((ROOT / 'requirements.txt').read_bytes()).digest()
+    return dependency_hash(ROOT/'requirements.txt')
 
 
 def perform_update():
