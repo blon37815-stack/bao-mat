@@ -1155,7 +1155,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Cache-Control', 'no-store')
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # Reloading or closing a panel may cancel an otherwise valid reply.
+            pass
 
     def do_GET(self):
         if not self.allowed_request():

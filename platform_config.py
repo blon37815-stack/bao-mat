@@ -21,6 +21,8 @@ def initialize(db):
     version = db.execute('PRAGMA user_version').fetchone()[0]
     if version > SCHEMA_VERSION:
         raise ValueError('Dữ liệu thuộc phiên bản mới hơn; hãy dùng đúng bản ứng dụng hoặc phục hồi bản sao tương thích')
+    if version == SCHEMA_VERSION:
+        return
     db.execute('CREATE TABLE IF NOT EXISTS model_profiles (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, spec TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS bot_model_bindings (bot_id TEXT NOT NULL, provider TEXT NOT NULL, profile_id TEXT NOT NULL, PRIMARY KEY(bot_id,provider))')
     db.execute('CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, memory TEXT NOT NULL)')

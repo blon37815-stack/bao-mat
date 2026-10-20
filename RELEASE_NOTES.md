@@ -24,10 +24,12 @@
   liên kết bản gốc khi người dùng gõ và làm mới trang ngay sau khi bấm sửa.
 - Đối chiếu dependency chuẩn hóa LF/CRLF giữa updater và launcher; đổi
   xuống dòng không tạo lại môi trường hoặc làm cấu hình môi trường lệch hash.
+- Chỉ migration khi schema cũ; kết nối đọc không ghi lại phiên bản schema,
+  giảm tranh chấp SQLite khi vừa cập nhật giao diện vừa xử lý công việc.
 - Ctrl+C tạm dừng hàng đợi, phát tín hiệu hủy việc và giữ trạng thái gián
   đoạn để chạy lại; asset/API no-store giảm việc dùng nhầm giao diện cũ.
 
-Kiểm chứng cục bộ ngày 20/10/2026: **144 unittest đạt** với LangGraph thật,
+Kiểm chứng cục bộ ngày 20/10/2026: **145 unittest đạt** với LangGraph thật,
 trong đó 4 ca thực thi Docker thật và các ca provider giả lập; **19 luồng
 Chromium đạt** trên Linux. Đã thử hủy vòng lặp vô hạn, chặn mạng/ghi nguồn,
 stdout quá lớn, không có test, model đổi khi việc chờ, migration trên bản

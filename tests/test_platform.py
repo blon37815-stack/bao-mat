@@ -164,6 +164,14 @@ class PlatformTest(unittest.TestCase):
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 999)
             self.assertFalse(db.execute("SELECT name FROM sqlite_master WHERE name='tasks'").fetchall())
 
+    def test_initialized_schema_can_be_read_while_another_connection_is_writing(self):
+        with app.connect() as writer:
+            writer.execute('BEGIN IMMEDIATE')
+            with closing(sqlite3.connect(app.DB, timeout=.1)) as reader:
+                platform_config.initialize(reader)
+                self.assertFalse(reader.in_transaction)
+                self.assertEqual(reader.execute('SELECT id FROM projects').fetchone()[0], 'default')
+
     def test_commands_are_explicit_and_do_not_claim_full_ecc(self):
         self.assertEqual(parse('/python Tạo CLI'), ('python','Tạo CLI'))
         self.assertEqual(parse('/verify abc'), ('verify','abc'))
