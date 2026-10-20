@@ -1,4 +1,5 @@
 import io
+from contextlib import closing
 import json
 import hashlib
 import os
@@ -34,7 +35,7 @@ class ReleaseTest(unittest.TestCase):
         self.git('clone','--branch','main',str(self.remote),str(self.client),cwd=self.root)
         self.database = self.client/'data'/'tasks.sqlite3'
         self.database.parent.mkdir()
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             db.execute('CREATE TABLE memories (content TEXT)')
             db.execute("INSERT INTO memories VALUES ('Bộ nhớ cần giữ')")
         self.addCleanup(self.remove)
@@ -61,7 +62,7 @@ class ReleaseTest(unittest.TestCase):
         releases.restore_bundle(bundle, destination)
         self.assertEqual((destination/'README.md').read_text(encoding='utf-8'), 'Phiên bản cũ')
         self.assertEqual((self.client/'README.md').read_text(), 'Current work')
-        with sqlite3.connect(destination/'data'/'tasks.sqlite3') as db:
+        with closing(sqlite3.connect(destination/'data'/'tasks.sqlite3')) as db, db:
             self.assertEqual(db.execute('SELECT content FROM memories').fetchone()[0], 'Bộ nhớ cần giữ')
         with self.assertRaises(ValueError): releases.restore_bundle(bundle, destination)
         self.assertFalse((destination/'.git').exists())
@@ -73,7 +74,7 @@ class ReleaseTest(unittest.TestCase):
         with patch.object(update_app,'ROOT',self.client), patch.dict(os.environ, {'BOT_DB':str(self.database)}):
             self.assertEqual(update_app.main(), 1)
         self.assertEqual(self.git('rev-parse','HEAD',cwd=self.client), before)
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             self.assertEqual(db.execute('SELECT content FROM memories').fetchone()[0], 'Bộ nhớ cần giữ')
         self.assertEqual(len(list((self.database.parent/'backups').glob('update-*.zip'))), 1)
 
@@ -82,7 +83,7 @@ class ReleaseTest(unittest.TestCase):
         self.commit('migration'); self.git('push',cwd=self.seed)
         with patch.object(update_app,'ROOT',self.client), patch.dict(os.environ, {'BOT_DB':str(self.database)}):
             self.assertEqual(update_app.main(), 0)
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 0)
             self.assertEqual(db.execute('SELECT content FROM memories').fetchone()[0], 'Bộ nhớ cần giữ')
         journal = json.loads((self.database.parent/'updates'/'last-update.json').read_text())
@@ -109,7 +110,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertTrue(executable.is_file())
         self.assertTrue(pointer['python_relative'].startswith('.runtime-envs'))
         self.assertEqual(pointer['requirements_sha256'], hashlib.sha256((self.client/'requirements.txt').read_bytes()).hexdigest())
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             self.assertEqual(db.execute('SELECT content FROM memories').fetchone()[0], 'Bộ nhớ cần giữ')
 
     def test_zip_traversal_and_corrupt_hash_are_rejected(self):

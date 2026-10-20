@@ -1,4 +1,5 @@
 import io
+from contextlib import closing
 import json
 from pathlib import Path
 import sqlite3
@@ -54,7 +55,7 @@ class TaskDeletionTest(unittest.TestCase):
         self.assertEqual(app.get_memory(),'Bộ nhớ chung')
         with zipfile.ZipFile(app.DB.parent/'backups'/result['backup_file']) as archive:
             restored=Path(self.temporary.name)/'restored.sqlite3';restored.write_bytes(archive.read('tasks.sqlite3'))
-        with sqlite3.connect(restored) as db:
+        with closing(sqlite3.connect(restored)) as db, db:
             self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0],'ok')
             self.assertEqual(db.execute('SELECT COUNT(*) FROM tasks').fetchone()[0],2)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM task_documents WHERE task_id="finished"').fetchone()[0],1)

@@ -164,9 +164,12 @@ class WorkflowTest(unittest.TestCase):
         worker = threading.Thread(target=server.serve_forever, daemon=True)
         worker.start()
         try:
-            with patch.dict(app.os.environ, {'OLLAMA_BASE_URL': 'http://127.0.0.1:'+str(server.server_port)}, clear=True):
+            # Keep Windows process variables (notably SystemRoot) for the
+            # isolated inference child; only provider settings are under test.
+            with patch.dict(app.os.environ, {'OLLAMA_BASE_URL': 'http://127.0.0.1:'+str(server.server_port),
+                                            'OLLAMA_MODEL':'qwen3:4b', 'OPENAI_API_KEY':''}):
                 app.run('test', 'Lập kế hoạch', 'ollama')
-            self.assertEqual(self.row()['status'], 'completed')
+            self.assertEqual(self.row()['status'], 'completed', self.row())
             self.assertEqual(len(requests), 3)
             self.assertEqual(requests[0][0], '/api/chat')
             self.assertEqual(requests[0][1]['model'], 'qwen3:4b')

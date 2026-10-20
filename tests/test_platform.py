@@ -1,4 +1,5 @@
 import json
+from contextlib import closing
 import os
 from pathlib import Path
 import sqlite3
@@ -155,11 +156,11 @@ class PlatformTest(unittest.TestCase):
         self.assertEqual([item['status'] for item in self.get('/api/tasks/'+task+'/workspace')['checks']], ['failed','passed'])
 
     def test_newer_database_is_rejected_without_migration(self):
-        with sqlite3.connect(app.DB) as db:
+        with closing(sqlite3.connect(app.DB)) as db, db:
             db.execute('PRAGMA user_version=999')
         with self.assertRaises(ValueError):
             app.connect()
-        with sqlite3.connect(app.DB) as db:
+        with closing(sqlite3.connect(app.DB)) as db, db:
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], 999)
             self.assertFalse(db.execute("SELECT name FROM sqlite_master WHERE name='tasks'").fetchall())
 
