@@ -18,8 +18,9 @@ CrewAI, Letta và OpenHands chưa được tích hợp.
 Hiện trạng và thiết kế để mở rộng bot/model, tách workspace và cập nhật có
 phục hồi được lưu trong [Nền tảng bot](docs/NEN_TANG_BOT.md). Tài liệu phân
 biệt chức năng đã có với các phần cần xây, kèm tiêu chí kiểm chứng từng đợt.
-Hướng dẫn phần đã triển khai trong bản `0.2.0-dev`:
-[Dự án, model, Docker và phục hồi](docs/CAP_NHAT_0_2.md).
+Bản `0.3.0-dev` bổ sung quyền công cụ theo vai trò, nhật ký và bản sao đề xuất
+nâng cấp để duyệt: [Hướng dẫn 0.3](docs/CAP_NHAT_0_3.md).
+Nền dự án/model/Docker/phục hồi: [Hướng dẫn 0.2](docs/CAP_NHAT_0_2.md).
 
 ## Cài, chạy và cập nhật trên Windows
 

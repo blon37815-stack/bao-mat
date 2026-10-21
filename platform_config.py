@@ -6,9 +6,10 @@ from pathlib import Path
 import re
 
 from expert_team import ECC_COMMIT, EXPERTS
+import bot_tools
 
 API_VERSION = 1
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ROOT = Path(__file__).resolve().parent
 BOT_IDS = (*EXPERTS, 'plan', 'result', 'review')
 
@@ -30,7 +31,14 @@ def initialize(db):
     db.execute('CREATE TABLE IF NOT EXISTS task_runtime (task_id TEXT PRIMARY KEY, spec TEXT NOT NULL)')
     db.execute('CREATE TABLE IF NOT EXISTS task_checks (task_id TEXT NOT NULL, attempt INTEGER NOT NULL, spec TEXT NOT NULL, PRIMARY KEY(task_id,attempt))')
     db.execute('CREATE TABLE IF NOT EXISTS execution_policy (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL)')
-    db.execute('PRAGMA user_version=1')
+    bot_tools.initialize(db)
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'").fetchone():
+        legacy = json.dumps(bot_tools.snapshot(db), ensure_ascii=False)
+        db.execute('INSERT OR IGNORE INTO task_tool_grants SELECT id,? FROM tasks', (legacy,))
+    db.execute('''CREATE TABLE IF NOT EXISTS upgrade_proposals (
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL,
+        spec TEXT NOT NULL, created TEXT NOT NULL, reviewed TEXT, bundle BLOB NOT NULL)''')
+    db.execute('PRAGMA user_version=2')
 
 
 def identifier(value):
@@ -135,6 +143,7 @@ def source_profile(expert):
 def snapshot(db, task_id, mode, project_id='default', origin=None, expert='none', app_version=None):
     identifier(project_id)
     if origin:
+        db.execute('INSERT OR IGNORE INTO task_tool_grants SELECT ?,spec FROM task_tool_grants WHERE task_id=?', (task_id, origin))
         row = db.execute('SELECT spec FROM task_runtime WHERE task_id=?', (origin,)).fetchone()
         if row:
             value = json.loads(row['spec'])
@@ -153,6 +162,7 @@ def snapshot(db, task_id, mode, project_id='default', origin=None, expert='none'
             selected[bot_id] = dict(available[key])
     row = db.execute('SELECT enabled FROM execution_policy WHERE id=1').fetchone()
     value = {'schema_version':SCHEMA_VERSION, 'api_version':API_VERSION, 'project_id':project_id,
+             'tool_policy':bot_tools.snapshot(db),
              'models':selected, 'app':app_version or {}, 'sandbox_enabled':bool(row and row['enabled']),
              'expert_source':source_profile(expert) if expert != 'none' and mode != 'demo' else None}
     if origin:
@@ -195,7 +205,9 @@ def workspace(db, task_id):
     for key in BOT_IDS:
         role = 'supervise' if key == expert else key
         steps = [dict(item) for item in db.execute('SELECT attempt,status,started_at,finished_at FROM task_steps WHERE task_id=? AND role=? ORDER BY id', (task_id, role))]
-        roles.append({'id':key, 'workspace':task_id+'/'+key, 'tools':['generate_text'], 'steps':steps,
+        frozen = bot_tools.grants(db, task_id, runtime or {}).get(key, {'tools':[]})
+        roles.append({'id':key, 'workspace':task_id+'/'+key,
+                      'tools':[tool for tool in frozen['tools'] if tool in bot_tools.policy(db, key)['tools']], 'steps':steps,
                       'assigned':key in ('plan','result','review') or key == expert})
     return {'id':task_id, 'storage':'sqlite', 'runtime':public_runtime(runtime), 'roles':roles,
             'checks':[json.loads(item['spec']) for item in db.execute('SELECT spec FROM task_checks WHERE task_id=? ORDER BY attempt', (task_id,))]}

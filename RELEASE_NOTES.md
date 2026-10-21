@@ -1,3 +1,36 @@
+# 0.3.0-dev — Quyền công cụ, nhật ký và đề xuất nâng cấp
+
+- Hồ sơ năng lực trên thẻ bot; bật/tắt các công cụ thuộc vai trò. Dispatcher
+  kiểm quyền trước gọi model, đọc ngữ cảnh, lưu tệp, kiểm tra cú pháp,
+  Docker và soạn đề xuất. Không có shell tùy ý hoặc API nhận callable.
+- Grants theo bản chụp và thu hồi hiện tại: không tăng quyền việc cũ khi
+  bật công cụ sau đó; tắt quyền chặn lần dùng tiếp theo. Hết hạn mức ghi
+  BLOCK, thiếu runner ghi WARN; việc bị chặn giữ đầu ra trước và cần bạn xem.
+- Nhật ký có bộ lọc/phân trang, đường dẫn/kết quả/thời lượng và hạn mức
+  500 sự kiện/việc, 5000 toàn app; không lưu prompt, thân tệp, phản hồi model
+  hoặc lỗi provider riêng tư. Nhật ký riêng đi cùng bước sao lưu/xóa việc.
+- Đề xuất nâng cấp có bản gốc/ứng viên, diff/patch, kiểm tra cú pháp,
+  manifest hash, tải ZIP, duyệt/từ chối và xóa. Giữ mã đang chạy nguyên vẹn;
+  chặn duyệt khi cú pháp sai, tệp bản sao bị sửa hoặc nguồn gốc đã đổi.
+  Chưa tự áp dụng patch, cài phụ thuộc, triển khai hay tạo PR.
+- Bundle đề xuất nằm trong SQLite để sao lưu/khôi phục hiện có giữ được
+  cả bản gốc và ứng viên; thư mục đối chiếu được dựng lại nếu thiếu. Giới
+  hạn 10 đề xuất, bản gốc 500 tệp/16 MB và patch 2 MB; không chứa data/.env,
+  môi trường Python, node_modules, Git history hay model.
+- Tách HTTP quản trị sang governance_api.py; giữ nền điều hướng cũ. Schema
+  2 thêm bảng và chụp quyền cho dữ liệu cũ; bản app cũ cần phục hồi đúng
+  gói trước nâng cấp thay vì mở dữ liệu mới.
+
+Kiểm chứng cục bộ ngày 21/10/2026: **164 unittest đạt**, gồm 4 ca Docker
+Linux thật; **23 luồng Chromium đạt**, gồm tắt quyền/xem BLOCK và chu trình
+bản đề xuất, tải/xóa, bố cục màn hình hẹp. Test provider vẫn dùng giả lập;
+chưa xác nhận chất lượng Ollama hoặc quy trình thao tác trên Windows thật.
+Cú pháp JS/Python, dependency và Prettier được kiểm tra. Kết quả CI từ xa
+cần đối chiếu đúng commit bàn giao; không suy ra từ kết quả cục bộ.
+
+Hướng dẫn: [docs/CAP_NHAT_0_3.md](docs/CAP_NHAT_0_3.md). Các phần dưới là
+lịch sử của những đợt trước.
+
 # 0.2.0-dev — Nền cấu hình, workspace và cập nhật
 
 - Hồ sơ model có revision, giới hạn đầu vào/đầu ra/thời hạn; phân công theo

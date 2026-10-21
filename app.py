@@ -27,6 +27,9 @@ import workspace_data
 import platform_config
 import product_runner
 import task_commands
+import sys
+import governance_api
+import bot_tools
 from release_support import application_lock
 from web_preview import preview_html
 from task_deletion import deletion_plan, apply_deletion
@@ -96,7 +99,7 @@ ROLES = [('plan', 'Điều phối', 'Chia yêu cầu thành kế hoạch cụ th
 OUTPUT_KEYS = ('supervise',*(key for key,_,_ in ROLES))
 
 
-class CallBudgetExceeded(Exception):
+class CallBudgetExceeded(bot_tools.ToolLimit):
     pass
 
 
@@ -250,21 +253,7 @@ def save_check(task_id, report):
 
 
 def run_product_checks(task_id):
-    status, product = product_files(task_id)
-    if status != 200:
-        return status, product
-    if product['mode'] == 'demo':
-        return 400, {'error':'Không chạy sản phẩm mô phỏng'}
-    with connect() as db:
-        if db.execute('SELECT COUNT(*) FROM task_checks WHERE task_id=?', (task_id,)).fetchone()[0] >= 20:
-            return 400, {'error':'Đã lưu 20 lượt kiểm thử; tạo phiên bản mới để kiểm tra tiếp'}
-    report = product_runner.check_product(product['files'])
-    save_check(task_id, report)
-    if report['status'] == 'failed':
-        with connect() as db:
-            db.execute("UPDATE tasks SET status='needs_review',stage='Kiểm thử Docker thất bại; xem báo cáo và tạo phiên bản sửa' WHERE id=? AND status IN ('completed','approved','needs_review')", (task_id,))
-    return 200, dict(report, id=task_id)
-
+    return governance_api.run_product_checks(sys.modules[__name__], task_id)
 
 def save_product_revision(parent_id, files):
     """Store an explicit manual edit as a new, unapproved product; no model or execution."""
@@ -290,6 +279,8 @@ def save_product_revision(parent_id, files):
             db.execute('INSERT INTO task_generation VALUES (?,?,0)',(task_id,'manual'))
             db.execute('INSERT INTO task_timing VALUES (?,?,?)',(task_id,stamp,stamp))
             db.execute('INSERT INTO task_steps(task_id,role,attempt,started_at,finished_at,status,output) VALUES (?,?,1,?,?,?,?)',(task_id,'result',stamp,stamp,'completed',result))
+            bot_tools.record(db, task_id, 'user', 'write_workspace', 'ALLOW', 'completed', 'Người dùng lưu bản sửa mới; giữ nguyên bản gốc',
+                             {'paths':[item['path'] for item in files]})
     return 201,{'id':task_id,'parent_id':parent_id}
 
 
@@ -541,6 +532,8 @@ def tracked_step(step, role_key):
                 (state['id'],role_key,max(1,attempt),utc_now(),'running')).lastrowid
         status, output = 'failed', ''
         try:
+            if role_key == 'result' and state.get('product'):
+                bot_tools.require(connect, state['id'], 'result', 'write_workspace')
             result = step(state)
             status, output = 'completed', result[role_key]
             return result
@@ -711,6 +704,18 @@ def parse_review(text):
 
 
 def model_reply(messages, mode):
+    task_id = getattr(CALL_STATE, 'task_id', None)
+    if not task_id:
+        return _model_reply(messages, mode)
+    role = getattr(CALL_STATE, 'role', 'plan')
+    context = bot_tools.invoke(connect, task_id, role, 'read_workspace', {'paths':[]},
+                               lambda: [dict(message) for message in messages])
+    return bot_tools.invoke(connect, task_id, role, 'generate_text',
+        {'provider':mode, 'input_chars':sum(len(message['content']) for message in context)},
+        lambda: _model_reply(context, mode))
+
+
+def _model_reply(messages, mode):
     """Count attempted provider requests, including failed/cancelled requests."""
     cancelled = getattr(CALL_STATE,'cancel_event',None)
     if cancelled is not None and cancelled.is_set():
@@ -748,7 +753,11 @@ def template_result(state, partial, attempt):
         fields = {'stage':f'Thực hiện · lượt {attempt}/3 · tệp {index}/{total}: {path}'}
         if files:
             fields['output'] = json.dumps(dict(partial,result=json.dumps({'files':files},ensure_ascii=False)),ensure_ascii=False)
-        worker_update(state['id'],**fields)
+        if files:
+            bot_tools.invoke(connect, state['id'], 'result', 'write_workspace', {'paths':[item['path'] for item in files]},
+                             lambda: worker_update(state['id'], **fields))
+        else:
+            worker_update(state['id'],**fields)
     return generate_files(state,lambda messages:model_reply(messages,state['mode']),progress)
 
 
@@ -834,7 +843,8 @@ def build_graph():
                     output = json.dumps({'passed':False,'issues':[str(error)]}, ensure_ascii=False)
                     targets = state.get('requirements',{}).get('required_files',[])
                 else:
-                    checks = check_files(files)
+                    checks = bot_tools.invoke(connect, state['id'], 'review', 'check_syntax',
+                        {'paths':[item['path'] for item in files]}, lambda: check_files(files))
                     issues = check_requirements(files,state.get('requirements',{})) if state['mode']!='demo' else []
                     issues += [item['path']+': '+item['message'] for item in state.get('generation_issues',[])]
                     targets = repair_paths(files,state.get('requirements',{}),ai_review,checks,state.get('generation_issues',[]))
@@ -848,7 +858,9 @@ def build_graph():
                     elif checks['status'] == 'unavailable' and not issues:
                         output = 'Bộ kiểm tra cú pháp không hoàn tất; cần người xem.'
                     if (state.get('runtime') or {}).get('sandbox_enabled') and state['mode'] != 'demo':
-                        execution = product_runner.check_product(files, getattr(CALL_STATE, 'cancel_event', None))
+                        execution = bot_tools.invoke(connect, state['id'], 'review', 'run_python_tests',
+                            {'paths':[item['path'] for item in files]},
+                            lambda: product_runner.check_product(files, getattr(CALL_STATE, 'cancel_event', None)))
                         save_check(state['id'], execution)
                         if execution['status'] == 'failed':
                             failure = 'Kiểm thử Docker thất bại: '+execution.get('output', '')[-12000:]
@@ -860,7 +872,15 @@ def build_graph():
                 raise ValueError('No final answer')
             partial = {k: state[k] for k in OUTPUT_KEYS if k in state}
             partial[key] = output
-            worker_update(state['id'], output=json.dumps(partial, ensure_ascii=False))
+            if key == 'result' and state.get('product'):
+                try:
+                    paths = [item['path'] for item in parse_files(output)]
+                except ValueError:
+                    paths = []
+                bot_tools.invoke(connect, state['id'], 'result', 'write_workspace', {'paths':paths},
+                    lambda: worker_update(state['id'], output=json.dumps(partial, ensure_ascii=False)))
+            else:
+                worker_update(state['id'], output=json.dumps(partial, ensure_ascii=False))
             changes = {key: output, 'attempts': attempts}
             if key=='result':
                 changes['generation_issues'] = generation_issues
@@ -938,7 +958,7 @@ def run(task_id, prompt, mode):
         with connect() as db:
             db.execute("UPDATE tasks SET stage='Đã hủy · luồng xử lý đã dừng' WHERE id=? AND status='cancelled'", (task_id,))
         return
-    except platform_config.ConfigurationError as error:
+    except (platform_config.ConfigurationError, bot_tools.ToolDenied) as error:
         try:
             worker_update(task_id, status='needs_review', stage=str(error))
         except TaskCancelled:
@@ -1001,6 +1021,7 @@ def enqueue_task(task_id, prompt, mode):
 
 def recover():
     with connect() as db:
+        db.execute("UPDATE audit_events SET outcome='interrupted',decision='WARN',reason='Tiến trình bị dừng; chưa xác nhận công cụ hoàn tất' WHERE outcome='running'")
         db.execute("UPDATE task_steps SET status='interrupted',finished_at=? WHERE status='running'",(utc_now(),))
         db.execute('UPDATE task_timing SET finished_at=? WHERE finished_at IS NULL',(utc_now(),))
         db.execute("UPDATE tasks SET status='interrupted', stage='Tiến trình bị dừng; có thể chạy lại nhiệm vụ' WHERE status IN ('queued','running')")
@@ -1178,6 +1199,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed_request():
             return
         parsed_url = urllib.parse.urlsplit(self.path)
+        if parsed_url.path == '/api/audit' or self.path == '/api/upgrades' or self.path.startswith('/api/upgrades/'):
+            return governance_api.get(self, sys.modules[__name__], parsed_url)
         if parsed_url.path == '/api/tasks':
             try:
                 query = urllib.parse.parse_qs(parsed_url.query)
@@ -1207,7 +1230,7 @@ class Handler(BaseHTTPRequestHandler):
                     if project['id'] == 'default':
                         project['memory'] = memory['content'] if memory else ''
                 policy = db.execute('SELECT enabled FROM execution_policy WHERE id=1').fetchone()
-                return self.respond(200, {'api_version':1, 'schema_version':1, 'models':models,
+                return self.respond(200, {'api_version':1, 'schema_version':platform_config.SCHEMA_VERSION, 'models':models,
                     'bindings':{key:platform_config.bindings(db, key) for key in platform_config.BOT_IDS},
                     'projects':projects, 'sandbox_enabled':bool(policy and policy['enabled']),
                     'sandbox_image':sandbox_image, 'concurrency':1})
@@ -1222,8 +1245,11 @@ class Handler(BaseHTTPRequestHandler):
             with connect() as db:
                 bots=workspace_data.bot_catalog(db)
                 for bot in bots:
-                    bot.update(model_bindings=platform_config.bindings(db, bot['id']),
-                               tools=['generate_text'] if bot['configurable'] else ['queue', 'call_budget'])
+                    bot.update(model_bindings=platform_config.bindings(db, bot['id']))
+                    if bot['configurable']:
+                        bot.update(bot_tools.describe(db, bot['id']))
+                    else:
+                        bot.update(tools=['queue', 'call_budget'], capabilities=[], verification='Bộ quản lý chạy bằng mã, không gọi AI')
                 active=[dict(row) for row in db.execute("SELECT id,prompt,stage FROM tasks WHERE status='running'")]
             return self.respond(200,{'bots':bots,'active':active})
         if self.path == '/api/documents':
@@ -1279,7 +1305,11 @@ class Handler(BaseHTTPRequestHandler):
             status, product = product_files(parts[3])
             if status != 200:
                 return self.respond(status, product)
-            checks = check_files(product['files'])
+            try:
+                checks = bot_tools.invoke(connect, parts[3], 'review', 'check_syntax',
+                    {'paths':[item['path'] for item in product['files']]}, lambda: check_files(product['files']))
+            except bot_tools.ToolDenied as error:
+                return self.respond(403, {'error':str(error)})
             issues = check_requirements(product['files'],get_requirements(parts[3])) if product['mode']!='demo' else []
             checks['requirements'] = {'issues':issues,'status':'skipped_demo' if product['mode']=='demo' else 'failed' if issues else 'passed'}
             if issues:
@@ -1357,6 +1387,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed_request(writing=True):
             return
+        if self.path == '/api/upgrades' or self.path.startswith('/api/upgrades/'):
+            return governance_api.post(self, sys.modules[__name__])
         if self.path in ('/api/models', '/api/models/delete', '/api/projects', '/api/sandbox-policy') or (self.path.startswith('/api/tasks/') and self.path.endswith('/run-tests')):
             try:
                 length = int(self.headers.get('Content-Length', '0'))
@@ -1429,6 +1461,8 @@ class Handler(BaseHTTPRequestHandler):
                         workspace_data.save_bot(db,data.get('id'),data.get('name'),data.get('instructions'))
                         if 'model_bindings' in data:
                             platform_config.save_bindings(db, data.get('id'), data['model_bindings'])
+                        if 'tools' in data:
+                            bot_tools.save_policy(db, data.get('id'), data['tools'])
                         result={'saved':True}
                     elif self.path=='/api/documents':
                         document_id=workspace_data.save_document(db,data.get('id'),data.get('title'),data.get('content'),utc_now())

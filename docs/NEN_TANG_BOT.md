@@ -16,15 +16,16 @@ Không thể bảo đảm mọi bot/model bên ngoài tương thích ngay hoặc
 
 | Phần | Đã có trong mã | Cần xây hoặc xác nhận |
 | --- | --- | --- |
-| Bảng điều khiển | Giữ các khu cũ; thêm thiết lập dự án/model và xem cấu hình/kiểm thử; API/schema v1; assets no-store | Nâng cấp dữ liệu thật trên Windows, quản lý tương thích nhiều phiên bản API |
-| Đội bot | 1 quản lý, 5 chuyên gia, 3 vai trò; hash phiên bản hướng dẫn, phân công model và snapshot | Đăng ký bot mới không cần sửa mã, bộ công cụ tùy vai trò |
+| Bảng điều khiển | Giữ các khu cũ; thêm thiết lập dự án/model và xem cấu hình/kiểm thử; API v1/schema v2; assets no-store | Nâng cấp dữ liệu thật trên Windows, quản lý tương thích nhiều phiên bản API |
+| Đội bot | 1 quản lý, 5 chuyên gia, 3 vai trò; hash phiên bản hướng dẫn, model/snapshot, quyền công cụ theo vai trò được kiểm ở dispatcher | Đăng ký bot mới không cần sửa mã, tool calling nhiều bước |
 | ECC | Xác minh hash, nạp bản tham khảo đầy đủ của chuyên gia đã chọn, giữ snapshot; 6 lệnh ứng dụng có bộ xử lý | Chưa hỗ trợ toàn bộ agent/skill/lệnh, hook hoặc runtime ECC |
 | Model | Hồ sơ/revision; chọn theo vai trò và nhà cung cấp; giới hạn đầu vào/đầu ra/thời hạn gọi; giữ cấu hình theo lượt | Kiểm tra năng lực và đo chất lượng trên máy đích; chưa có tự chọn/dự phòng model |
-| Workspace | Dự án/bộ nhớ riêng, lọc nhiệm vụ, workspace logic theo vai trò và báo cáo trong SQLite | Workspace thư mục bền vững và vùng ghi riêng khi bot có công cụ |
+| Workspace | Dự án/bộ nhớ riêng, workspace logic theo vai trò trong SQLite; bản sao base/candidate cho đề xuất nâng cấp | Workspace thư mục/tool calling bền vững theo bot |
 | Tài nguyên | 1 nhiệm vụ chạy, tối đa 10 chờ; mặc định 20 lượt gọi; quan sát CPU/RAM và NVIDIA khi có | Ngân sách context/token, ổ đĩa, thời gian toàn lượt, lịch nạp model và kiểm soát tài nguyên thực thi |
 | Chất lượng | Runner unittest Python trong Docker tùy chọn, lỗi đưa vào vòng sửa; giữ kiểm tra tĩnh và hạn mức | Runner web, test độc lập từ yêu cầu, đánh giá Ollama thật |
 | Bảo trì dữ liệu | Gói mã/SQLite trước cập nhật; kiểm hash và phục hồi sang thư mục mới; chặn schema quá mới | Phục hồi và dọn backup tự động theo dung lượng |
-| Cập nhật | Thử import/đồ thị/migration trên bản sao trước fast-forward; dependency đổi cài môi trường riêng; khóa app/updater | Tự chuyển lại phiên bản, kiểm thử nâng cấp toàn bộ trên Windows |
+| Cập nhật | Bản sao đề xuất, diff/patch, duyệt/từ chối/tải ZIP; updater vẫn thử bản sao, sao lưu và khóa app | Áp dụng patch/PR tự động, tự chuyển lại phiên bản, kiểm thử nâng cấp toàn bộ trên Windows |
+| Nhật ký | ALLOW/BLOCK/WARN ở dispatcher, kết quả/thời lượng/đường dẫn; 500 sự kiện/việc, 5000 toàn app | Nhật ký chống chỉnh sửa và lưu trữ dài hạn |
 | Kiểm chứng | Có unittest, kiểm thử Chromium và cấu hình CI Windows/Ubuntu | Xác nhận CI từ xa, đánh giá Ollama thật, kiểm tra nâng cấp/khôi phục trên Windows |
 
 Các kiểm thử dùng LangGraph thật/provider giả lập cho luồng ứng dụng, Chromium cho giao diện và Docker Linux thật cho runner. Không phải bằng chứng toàn bộ ECC hoặc Ollama thật đã đạt. Xem ghi chú phát hành cho số kiểm thử; sản phẩm Python người dùng gửi trước đó vẫn cần sửa lỗi của chính sản phẩm.

@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 import subprocess
 
-APP_VERSION = '0.2.0-dev'
+APP_VERSION = '0.3.0-dev'
 ROOT = Path(__file__).resolve().parent
 
 
@@ -21,7 +21,7 @@ def startup_info():
                                    check=True,capture_output=True,text=True,timeout=2).stdout.strip())
     except (OSError,subprocess.SubprocessError):
         pass
-    return {'version':APP_VERSION,'api_version':1,'schema_version':1,'commit':commit,'dirty_at_start':dirty,'source_digest':digest.hexdigest(),
+    return {'version':APP_VERSION,'api_version':1,'schema_version':2,'commit':commit,'dirty_at_start':dirty,'source_digest':digest.hexdigest(),
             'started_at':datetime.now(timezone.utc).isoformat()}
 
 

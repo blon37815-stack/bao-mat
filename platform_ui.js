@@ -72,7 +72,9 @@
   workspace.id = "run-workspace";
   workspace.innerHTML = `<summary>Cấu hình và kiểm thử của công việc</summary><pre id="run-config"></pre>
     <button id="run-product-tests" class="secondary">Chạy kiểm thử Python (Docker)</button>
-    <p id="run-tests-status" role="status"></p><pre id="run-checks-output"></pre>`;
+    <p id="run-tests-status" role="status"></p><pre id="run-checks-output"></pre>
+    <button id="inspect-audit" class="secondary">Xem nhật ký thao tác</button>
+    <button id="prepare-upgrade" class="secondary">Đề xuất nâng cấp từ bộ tệp này</button>`;
   $("#inspector-status").after(workspace);
 
   async function request(path, body) {
@@ -242,6 +244,11 @@
   }
   window.addEventListener("workspace:task", async ({ detail }) => {
     selectedTask = detail;
+    $("#audit-current").disabled = false;
+    $("#prepare-upgrade").disabled =
+      !detail.product ||
+      detail.mode === "demo" ||
+      !["completed", "needs_review", "approved"].includes(detail.status);
     const runtime = detail.runtime;
     const signature = detail.id + JSON.stringify(runtime) + detail.status;
     $("#run-product-tests").disabled =
@@ -262,6 +269,11 @@
                 `${role}: ${model.provider} · ${model.model} · hồ sơ ${model.id} v${model.revision}`,
             ),
             "Tự kiểm thử Docker: " + (runtime.sandbox_enabled ? "bật" : "tắt"),
+            ...Object.entries(runtime.tool_policy || {}).map(
+              ([role, policy]) =>
+                `Quyền lúc giao · ${role} v${policy.revision}: ${policy.tools.map((tool) => toolNames[tool] || tool).join(", ") || "đã tắt tất cả"}`,
+            ),
+            "Quyền hiện tại có thể thu hẹp bản chụp; xem nhật ký nếu thao tác bị chặn.",
             runtime.expert_source
               ? "Hướng dẫn ECC: " + runtime.expert_source.commit.slice(0, 12)
               : "Không có bản chụp hướng dẫn ECC.",
@@ -300,6 +312,296 @@
       load().catch((error) => {
         $("#platform-status").textContent = error.message;
       });
+    if (detail.name === "resources" && auditPanel.open) loadAudit();
+    if (detail.name === "settings" && upgradePanel.open) loadUpgrades();
+  });
+
+  const auditPanel = el("details");
+  auditPanel.id = "audit-panel";
+  auditPanel.className = "panel";
+  auditPanel.innerHTML = `<summary>Nhật ký thao tác và quyền công cụ</summary>
+    <p>Ghi bot, công cụ, đường dẫn, quyết định và kết quả. Không ghi prompt, nội dung tệp hoặc khóa API. Lưu tối đa 500 sự kiện mỗi công việc và 5000 sự kiện toàn ứng dụng.</p>
+    <label><input id="audit-current" type="checkbox" disabled/> Chỉ công việc đang xem</label>
+    <label for="audit-decision">Quyết định</label><select id="audit-decision"><option value="">Tất cả</option><option value="BLOCK">Bị chặn</option><option value="WARN">Cần chú ý</option><option value="ALLOW">Được phép</option></select>
+    <button id="audit-refresh" class="secondary">Làm mới nhật ký</button>
+    <p id="audit-status" role="status"></p><div id="audit-events"></div>
+    <button id="audit-prev" class="secondary" disabled>Trước</button> <button id="audit-next" class="secondary" disabled>Tiếp</button>`;
+  $("#view-resources").append(auditPanel);
+  let auditOffset = 0,
+    auditSequence = 0;
+  const toolNames = {
+    generate_text: "Gọi model",
+    read_workspace: "Đọc dữ liệu công việc",
+    write_workspace: "Lưu bộ tệp",
+    check_syntax: "Kiểm tra cú pháp",
+    run_python_tests: "Kiểm thử Docker",
+    propose_upgrade: "Đề xuất nâng cấp",
+  };
+  const botNames = {
+    plan: "Điều phối",
+    result: "Thực hiện",
+    review: "Kiểm tra",
+    user: "Bạn",
+    planner: "Chuyên gia kế hoạch",
+    architect: "Chuyên gia kiến trúc",
+    python: "Chuyên gia Python",
+    web: "Chuyên gia web",
+    data: "Chuyên gia dữ liệu",
+  };
+  async function loadAudit(offset = 0) {
+    const sequence = ++auditSequence;
+    const query = new URLSearchParams({ offset: String(offset) });
+    if ($("#audit-current").checked && selectedTask)
+      query.set("task_id", selectedTask.id);
+    if ($("#audit-decision").value)
+      query.set("decision", $("#audit-decision").value);
+    $("#audit-status").textContent = "Đang đọc nhật ký…";
+    try {
+      const value = await request("/api/audit?" + query);
+      if (sequence !== auditSequence) return;
+      auditOffset = offset;
+      $("#audit-events").replaceChildren();
+      for (const entry of value.events) {
+        const card = el("article");
+        card.className = "audit-entry";
+        card.append(
+          el(
+            "h3",
+            `${botNames[entry.bot_id] || entry.bot_id} · ${toolNames[entry.tool] || entry.tool}`,
+          ),
+        );
+        const decision = {
+          ALLOW: "Được phép",
+          BLOCK: "Bị chặn",
+          WARN: "Cần chú ý",
+        }[entry.decision];
+        const outcome =
+          {
+            running: "Đang chạy",
+            completed: "Đã hoàn tất",
+            passed: "Kiểm tra đạt",
+            failed: "Chưa đạt hoặc gặp lỗi",
+            denied: "Đã từ chối",
+            cancelled: "Đã hủy",
+            limited: "Hết hạn mức",
+            interrupted: "Bị gián đoạn",
+            unavailable: "Chưa chạy được",
+            not_supported: "Chưa hỗ trợ",
+          }[entry.outcome] || entry.outcome;
+        card.append(
+          el("p", `${decision} · ${outcome} · ${entry.duration_ms} ms`),
+          el("p", entry.reason),
+        );
+        if (entry.details.paths?.length)
+          card.append(el("p", "Tệp: " + entry.details.paths.join(", ")));
+        if (entry.details.proposal_id)
+          card.append(el("p", "Đề xuất: " + entry.details.proposal_id));
+        card.append(
+          el(
+            "small",
+            `${new Date(entry.created).toLocaleString("vi-VN")} · Công việc: ${entry.task_id || "Thiết lập ứng dụng"}`,
+          ),
+        );
+        $("#audit-events").append(card);
+      }
+      $("#audit-status").textContent = value.total
+        ? `${offset + 1}–${offset + value.events.length} / ${value.total} sự kiện`
+        : "Chưa có sự kiện trong bộ lọc này.";
+      $("#audit-prev").disabled = offset === 0;
+      $("#audit-next").disabled = offset + value.limit >= value.total;
+    } catch (error) {
+      if (sequence === auditSequence)
+        $("#audit-status").textContent = error.message;
+    }
+  }
+  auditPanel.ontoggle = () => {
+    if (auditPanel.open) loadAudit();
+  };
+  $("#audit-refresh").onclick = () => loadAudit();
+  $("#audit-current").onchange = () => loadAudit();
+  $("#audit-decision").onchange = () => loadAudit();
+  $("#audit-prev").onclick = () => loadAudit(Math.max(0, auditOffset - 50));
+  $("#audit-next").onclick = () => loadAudit(auditOffset + 50);
+  $("#inspect-audit").onclick = () => {
+    $("#audit-current").checked = true;
+    window.WorkspaceUI.showView("resources");
+    auditPanel.open = true;
+    loadAudit();
+    auditPanel.scrollIntoView({ block: "start" });
+  };
+
+  const upgradePanel = el("details");
+  upgradePanel.id = "upgrade-panel";
+  upgradePanel.className = "panel";
+  upgradePanel.innerHTML = `<summary>Đề xuất nâng cấp ứng dụng</summary>
+    <p>Tạo bản sao mã nguồn gốc và bản ứng viên từ bộ tệp đã hoàn tất. Đọc diff, xem kiểm tra rồi duyệt hoặc từ chối. Duyệt chỉ lưu quyết định; tải ZIP để kiểm thử và áp dụng trong checkout riêng trước khi dùng bộ cập nhật.</p>
+    <form id="upgrade-form"><label for="upgrade-task">Mã công việc chứa bộ tệp nâng cấp</label><input id="upgrade-task" required maxlength="64" pattern="[a-zA-Z0-9_-]+"/>
+    <label for="upgrade-title">Tên đề xuất</label><input id="upgrade-title" required maxlength="120"/>
+    <button id="upgrade-create">Tạo bản sao và đề xuất</button></form>
+    <button id="upgrade-refresh" class="secondary">Làm mới đề xuất</button>
+    <p id="upgrade-status" role="status"></p><div id="upgrade-list"></div><section id="upgrade-detail" hidden></section>`;
+  $("#view-settings").append(upgradePanel);
+  const proposalStatus = {
+    pending: "Chờ bạn duyệt",
+    approved: "Bạn đã duyệt · chưa áp dụng",
+    rejected: "Đã từ chối",
+  };
+  async function loadUpgrades() {
+    try {
+      const value = await request("/api/upgrades");
+      $("#upgrade-list").replaceChildren();
+      if (!value.proposals.length)
+        $("#upgrade-list").append(
+          el(
+            "p",
+            "Chưa có đề xuất. Tạo từ bộ tệp sửa ứng dụng, không dùng sản phẩm mô phỏng.",
+          ),
+        );
+      for (const proposal of value.proposals) {
+        const card = el("article");
+        card.className = "upgrade-entry";
+        card.append(
+          el("h3", proposal.title),
+          el("p", proposalStatus[proposal.status]),
+        );
+        const view = el("button", "Xem thay đổi");
+        view.className = "secondary";
+        view.onclick = () => showProposal(proposal.id);
+        const remove = el("button", "Xóa bản đề xuất");
+        remove.className = "secondary danger";
+        remove.onclick = async () => {
+          if (
+            !confirm(
+              "Xóa bản sao đề xuất này? Mã ứng dụng và công việc gốc được giữ.",
+            )
+          )
+            return;
+          try {
+            await request(`/api/upgrades/${proposal.id}/delete`, {
+              confirmation: proposal.id,
+            });
+            $("#upgrade-detail").hidden = true;
+            await loadUpgrades();
+            $("#upgrade-status").textContent = "Đã xóa bản đề xuất.";
+          } catch (error) {
+            $("#upgrade-status").textContent = error.message;
+          }
+        };
+        card.append(view, remove);
+        $("#upgrade-list").append(card);
+      }
+    } catch (error) {
+      $("#upgrade-status").textContent = error.message;
+    }
+  }
+  async function showProposal(id) {
+    try {
+      const value = await request("/api/upgrades/" + id);
+      const detail = $("#upgrade-detail");
+      detail.replaceChildren(
+        el("h3", value.title),
+        el("p", proposalStatus[value.status]),
+        el("p", value.limitations),
+      );
+      detail.append(
+        el(
+          "p",
+          `Mã nguồn gốc: ${value.base_digest.slice(0, 16)} · Cú pháp: ${{ passed: "Đạt ở tệp được hỗ trợ", failed: "Chưa đạt", unavailable: "Chưa kiểm tra được", not_supported: "Chưa hỗ trợ" }[value.checks.status] || "Chưa xác định"} · ${value.checks.checked} tệp đã kiểm tra`,
+        ),
+      );
+      if (value.stale)
+        detail.append(
+          el(
+            "p",
+            "Mã nguồn gốc đã thay đổi. Cần tạo đề xuất mới trước khi duyệt.",
+          ),
+        );
+      for (const change of value.changes)
+        detail.append(el("h4", change.path), el("pre", change.diff));
+      for (const finding of value.checks.findings || [])
+        detail.append(el("p", `${finding.path}: ${finding.message}`));
+      const download = el("a", "Tải bản gốc, bản ứng viên và patch (ZIP)");
+      download.href = `/api/upgrades/${id}/artifact.zip`;
+      download.download = "";
+      detail.append(download);
+      for (const [decision, label] of [
+        ["approved", "Duyệt bản đề xuất"],
+        ["rejected", "Từ chối bản đề xuất"],
+      ]) {
+        const button = el("button", label);
+        button.className = "secondary";
+        button.disabled =
+          value.status !== "pending" ||
+          (decision === "approved" &&
+            (value.stale ||
+              ["failed", "unavailable"].includes(value.checks.status)));
+        button.onclick = async () => {
+          if (
+            !confirm(
+              label + "? Quyết định này chưa áp dụng patch vào ứng dụng.",
+            )
+          )
+            return;
+          button.disabled = true;
+          try {
+            const result = await request(`/api/upgrades/${id}/review`, {
+              decision,
+              confirmation: id,
+            });
+            $("#upgrade-status").textContent = result.message;
+            await loadUpgrades();
+            await showProposal(id);
+          } catch (error) {
+            $("#upgrade-status").textContent = error.message;
+            button.disabled = false;
+          }
+        };
+        detail.append(button);
+      }
+      detail.hidden = false;
+    } catch (error) {
+      $("#upgrade-status").textContent = error.message;
+    }
+  }
+  upgradePanel.ontoggle = () => {
+    if (upgradePanel.open) loadUpgrades();
+  };
+  $("#upgrade-refresh").onclick = () => loadUpgrades();
+  $("#upgrade-form").onsubmit = async (event) => {
+    event.preventDefault();
+    $("#upgrade-create").disabled = true;
+    $("#upgrade-status").textContent = "Đang tạo bản sao và kiểm tra cú pháp…";
+    try {
+      const result = await request("/api/upgrades", {
+        task_id: $("#upgrade-task").value,
+        title: $("#upgrade-title").value,
+      });
+      $("#upgrade-status").textContent = result.message;
+      await loadUpgrades();
+      await showProposal(result.id);
+    } catch (error) {
+      $("#upgrade-status").textContent = error.message;
+    } finally {
+      $("#upgrade-create").disabled = false;
+    }
+  };
+  $("#prepare-upgrade").onclick = () => {
+    if (!selectedTask) return;
+    $("#upgrade-task").value = selectedTask.id;
+    $("#upgrade-title").value = ("Đề xuất: " + selectedTask.prompt).slice(
+      0,
+      120,
+    );
+    window.WorkspaceUI.showView("settings");
+    upgradePanel.open = true;
+    upgradePanel.scrollIntoView({ block: "start" });
+  };
+  window.addEventListener("workspace:closed", () => {
+    selectedTask = null;
+    $("#audit-current").checked = false;
+    $("#audit-current").disabled = true;
+    $("#prepare-upgrade").disabled = true;
+    $("#run-product-tests").disabled = true;
   });
   window.PlatformUI = {
     async fillBindings(bot) {

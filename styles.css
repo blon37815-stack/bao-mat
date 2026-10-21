@@ -1334,3 +1334,51 @@ dialog::backdrop {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Capability and review panels reuse the existing workspace navigation. */
+#bot-tools {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin: 18px 0;
+  padding: 12px;
+}
+#bot-tools label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bot-capabilities {
+  margin: 12px 0;
+}
+.bot-capabilities p {
+  font-size: 12px;
+  margin: 6px 0;
+}
+#audit-events,
+#upgrade-list {
+  display: grid;
+  gap: 12px;
+  max-height: 560px;
+  overflow: auto;
+}
+.audit-entry,
+.upgrade-entry {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  overflow-wrap: anywhere;
+}
+#upgrade-detail {
+  margin-top: 20px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+#upgrade-detail pre {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre;
+}
+#upgrade-detail a {
+  display: block;
+  margin: 16px 0;
+}

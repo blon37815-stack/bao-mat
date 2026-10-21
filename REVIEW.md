@@ -7,6 +7,14 @@ gói ghi commit và SHA-256 từng tệp để đối chiếu; file này không 
 
 ## Phần mới cần xem
 
+Đợt `0.3.0-dev`: xem `docs/CAP_NHAT_0_3.md`. `bot_tools.py` kiểm quyền ở
+luồng thực tế, giữ grants theo lượt/thu hồi hiện tại và audit có hạn mức,
+không lưu nội dung hay lỗi provider. `governance_api.py` tách các route quản trị. `upgrade_proposals.py` tạo bản sao
+base/candidate, patch, hash và bundle trong SQLite; duyệt chỉ ghi quyết định.
+Không có API thực thi shell hay áp dụng patch vào ứng dụng. Schema 2 giữ
+dữ liệu cũ; test mới trong `test_bot_tools.py`, `test_upgrade_proposals.py`
+và ba luồng Chromium cuối. Các phần dưới là lịch sử triển khai trước đó.
+
 Đợt nền tảng `0.2.0-dev`: xem `docs/CAP_NHAT_0_2.md`. `platform_config.py`
 lưu hồ sơ model/revision, dự án và task_runtime; `platform_ui.js` giữ nền
 giao diện và thêm thiết lập. `product_runner.py`/`sandbox_worker.py` chỉ
@@ -14,7 +22,7 @@ chạy sản phẩm trong Docker có giới hạn, không fallback host. `releas
 `launch_app.py`, `restore_app.py` chuẩn bị bản đích trên dữ liệu sao chép,
 sao lưu mã/SQLite và phục hồi sang thư mục mới. `task_commands.py` chỉ nối
 6 lệnh công khai, không giả lập toàn bộ ECC. Các đoạn dưới mô tả đợt trước;
-README và hướng dẫn 0.2 là hiện trạng mới hơn.
+README và hướng dẫn 0.3 ở trên là hiện trạng mới hơn.
 
 Đợt tách Công việc: task_deletion.py/app.py lưu ZIP trước xóa, so fingerprint
 trước/sau sao lưu và xóa một việc trong transaction. Phiên bản khác giữ

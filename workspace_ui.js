@@ -226,6 +226,7 @@
     $(".workspace-grid").classList.remove("expanded");
     $("#expand-inspector").setAttribute("aria-label", "Mở rộng khung sản phẩm");
     $("#expand-inspector").title = "Mở rộng khung sản phẩm";
+    window.dispatchEvent(new CustomEvent("workspace:closed"));
   }
   $("#close-inspector").onclick = () => clearInspector();
   $("#delete-open-task").onclick = () => {
@@ -839,6 +840,20 @@
         top.append(avatar, kind);
         card.append(top, el("h3", bot.name), el("p", bot.description));
         if (bot.configurable) {
+          const capabilities = el("details");
+          capabilities.className = "bot-capabilities";
+          capabilities.append(
+            el("summary", "Công cụ và phạm vi · v" + bot.revision),
+          );
+          for (const tool of bot.capabilities || [])
+            capabilities.append(
+              el("p", (tool.enabled ? "✓ " : "Tắt · ") + tool.name),
+            );
+          capabilities.append(
+            el("small", bot.workspace || ""),
+            el("small", bot.verification || ""),
+          );
+          card.append(capabilities);
           card.append(
             el(
               "small",
@@ -906,7 +921,7 @@
         grid.append(card);
       }
       $("#bots-status").textContent =
-        "Thiết lập riêng áp dụng cho nhiệm vụ mới. Nhiệm vụ đang chạy giữ thiết lập lúc giao.";
+        "Model và hướng dẫn giữ theo bản chụp công việc. Tắt quyền công cụ sẽ chặn lần dùng tiếp theo; không tự mở thêm quyền cho việc cũ.";
     } catch (error) {
       $("#bots-status").textContent = error.message;
     } finally {
@@ -919,6 +934,17 @@
     $("#bot-name").value = bot.name;
     $("#bot-instructions").value = bot.instructions;
     $("#bot-description").textContent = bot.description;
+    $("#bot-tools").replaceChildren(el("legend", "Quyền công cụ theo vai trò"));
+    for (const tool of bot.capabilities || []) {
+      const label = el("label");
+      const checkbox = el("input");
+      checkbox.type = "checkbox";
+      checkbox.value = tool.id;
+      checkbox.checked = tool.enabled;
+      checkbox.dataset.botTool = tool.id;
+      label.append(checkbox, document.createTextNode(" " + tool.name));
+      $("#bot-tools").append(label);
+    }
     $("#bot-save-status").textContent = "";
     $("#save-bot").disabled = true;
     $("#bot-dialog").showModal();
@@ -935,6 +961,11 @@
     $("#bot-instructions").value = "";
     $("#bot-model-ollama").value = "";
     $("#bot-model-ai").value = "";
+    $("#bot-tools")
+      .querySelectorAll("input")
+      .forEach((input) => {
+        input.checked = true;
+      });
   };
   $("#bot-form").onsubmit = async (event) => {
     event.preventDefault();
@@ -946,6 +977,9 @@
           id: editedBot.id,
           name: $("#bot-name").value,
           instructions: $("#bot-instructions").value,
+          tools: [...$("#bot-tools").querySelectorAll("input:checked")].map(
+            (input) => input.value,
+          ),
           model_bindings: {
             ollama: $("#bot-model-ollama").value,
             ai: $("#bot-model-ai").value,
@@ -954,7 +988,8 @@
       });
       const data = await response.json();
       if (!response.ok) throw Error(data.error);
-      $("#bot-save-status").textContent = "Đã lưu thiết lập cho nhiệm vụ mới.";
+      $("#bot-save-status").textContent =
+        "Đã lưu. Model áp dụng cho nhiệm vụ mới; quyền bị tắt sẽ chặn lần dùng công cụ tiếp theo.";
       botSignature = "";
       await loadBots();
     } catch (error) {

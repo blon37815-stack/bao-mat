@@ -4,7 +4,7 @@ import json
 
 TASK_TABLES = ('task_steps','task_timing','task_memory','task_products','task_requirements',
                'task_sources','task_generation','task_assignment','task_documents','task_bot_preferences',
-               'task_runtime','task_checks')
+               'task_runtime','task_checks','audit_events','task_tool_grants')
 
 
 def deletion_plan(db, task_id):

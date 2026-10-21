@@ -504,3 +504,72 @@ test('failed workspace script keeps controls disabled and explains how to recove
   await expect(page.locator('#view-resources')).toBeVisible();
   await expect(page.locator('#default-call-limit')).toBeEditable();
 });
+
+test('bot capability controls enforce a denial and show a content-free audit trail', async ({page}) => {
+  const before = (await (await page.request.get('/api/bots')).json()).bots.find(bot=>bot.id==='plan');
+  await page.locator('[data-view="team"]').click();
+  const card = page.locator('[data-bot-id="plan"]');
+  await card.getByRole('button',{name:'Thiết lập bot',exact:true}).click();
+  await expect(page.locator('#save-bot')).toBeEnabled();
+  await page.locator('[data-bot-tool="generate_text"]').uncheck();
+  await page.locator('#save-bot').click();
+  await expect(page.locator('#bot-save-status')).toContainText('Đã lưu');
+  await page.locator('#close-bot').click();
+  try {
+    const task = await post(page,'/api/tasks',{prompt:'Kiểm thử sinh từng tệp trên trình duyệt',mode:'ollama',expert:'none'});
+    await expect.poll(async()=> (await (await page.request.get('/api/tasks/'+task.id)).json()).status).toBe('needs_review');
+    await page.evaluate(id=>window.WorkspaceUI.openTask(id),task.id);
+    await expect(page.locator('#inspector-body')).toBeVisible();
+    await page.locator('#run-workspace > summary').click();
+    await page.locator('#inspect-audit').click();
+    await page.locator('#audit-decision').selectOption('BLOCK');
+    await expect(page.locator('#audit-events')).toContainText('Bị chặn');
+    await expect(page.locator('#audit-events')).toContainText('Gọi model');
+    await expect(page.locator('#audit-events')).toContainText('Đã từ chối');
+    await expect(page.locator('#audit-events')).not.toContainText('Kiểm thử sinh từng tệp trên trình duyệt');
+    await expect(page.locator('#audit-status')).toContainText('1 sự kiện');
+  } finally {
+    await post(page,'/api/bots',{id:before.id,name:before.name,instructions:before.instructions,tools:before.tools});
+  }
+});
+
+test('upgrade review creates an isolated candidate, downloads it and deletes only the proposal', async ({page}) => {
+  await page.locator('[data-view="settings"]').click();
+  await page.locator('#upgrade-panel > summary').click();
+  await page.locator('#upgrade-task').fill('web-preview-fixture');
+  await page.locator('#upgrade-title').fill('Nâng cấp thử bằng trình duyệt');
+  await page.locator('#upgrade-create').click();
+  await expect(page.locator('#upgrade-status')).toContainText('Đã lưu bản sao và patch');
+  await expect(page.locator('#upgrade-detail')).toBeVisible();
+  await expect(page.locator('#upgrade-detail h4')).toContainText(['index.html','style.css','app.js','README.md']);
+  await expect(page.locator('#upgrade-detail')).toContainText('chưa chạy toàn bộ kiểm thử');
+  const downloading = page.waitForEvent('download');
+  await page.locator('#upgrade-detail a').click();
+  expect((await downloading).suggestedFilename()).toMatch(/^upgrade-.*\.zip$/);
+  await page.locator('#upgrade-detail').getByRole('button',{name:'Duyệt bản đề xuất',exact:true}).click();
+  await expect(page.locator('#upgrade-detail')).toContainText('Bạn đã duyệt · chưa áp dụng');
+  const proposal = page.locator('#upgrade-list article').filter({hasText:'Nâng cấp thử bằng trình duyệt'});
+  await proposal.getByRole('button',{name:'Xóa bản đề xuất',exact:true}).click();
+  await expect(proposal).toHaveCount(0);
+  await expect(page.locator('#upgrade-status')).toContainText('Đã xóa bản đề xuất');
+  await page.reload();
+  await expect(page.locator('#submit')).toBeEnabled();
+  expect((await page.request.get('/api/tasks/web-preview-fixture')).ok()).toBeTruthy();
+});
+
+test('audit and proposal details remain usable on a narrow screen', async ({page}) => {
+  const proposal=await post(page,'/api/upgrades',{task_id:'web-preview-fixture',title:'Đối chiếu trên điện thoại'});
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('[data-view="settings"]').click();
+  await page.locator('#upgrade-panel > summary').click();
+  await page.locator('#upgrade-list article').filter({hasText:'Đối chiếu trên điện thoại'}).getByRole('button',{name:'Xem thay đổi',exact:true}).click();
+  await expect(page.locator('#upgrade-detail')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+  await page.locator('#upgrade-detail').screenshot({path:process.env.BAO_REVIEW_SCREENSHOT_DIR ? process.env.BAO_REVIEW_SCREENSHOT_DIR+'/proposal-mobile.png' : 'test-results/proposal-mobile.png'});
+  await page.locator('[data-view="resources"]').click();
+  await page.locator('#audit-panel > summary').click();
+  await expect(page.locator('#audit-events article').first()).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+  await page.locator('#audit-panel').screenshot({path:process.env.BAO_REVIEW_SCREENSHOT_DIR ? process.env.BAO_REVIEW_SCREENSHOT_DIR+'/audit-mobile.png' : 'test-results/audit-mobile.png'});
+  await post(page,'/api/upgrades/'+proposal.id+'/delete',{confirmation:proposal.id});
+});
