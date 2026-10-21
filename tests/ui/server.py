@@ -12,6 +12,14 @@ import app
 def fixture_ollama(messages):
     """Only this marked browser fixture is accepted; no real inference in UI tests."""
     context=json.loads(messages[1]['content'])
+    custom = context.get('prompt')=='Kiểm thử danh sách tệp tự nhập' or context.get('prompt','').startswith('Bổ sung các tệp bắt buộc còn thiếu hoặc rỗng:')
+    if custom:
+        files={'main.py':'def add(a,b):\n return a+b\n',
+               'tests/test_main.py':'import unittest\nfrom main import add\nclass T(unittest.TestCase):\n def test_add(self): self.assertEqual(add(2,3),5)\n',
+               'README.md':'# Công cụ tính tổng'}
+        if context.get('target_path'): return files[context['target_path']]
+        if context.get('kind'): return json.dumps({'plan':'Sinh chương trình, kiểm thử và hướng dẫn.','required_files':list(files)})
+        return '{"passed":true,"issues":[]}' if 'result' in context else 'Kế hoạch'
     if context.get('prompt')!='Kiểm thử sinh từng tệp trên trình duyệt':
         raise RuntimeError('Unexpected inference in browser test')
     if context.get('team_request')=='supervise':
@@ -42,5 +50,8 @@ with tempfile.TemporaryDirectory(prefix='bao-mat-ui-') as temporary:
         ]
         db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)',('web-preview-fixture','Trang mẫu để duyệt và chỉnh sửa','ollama','completed','Dữ liệu giả lập kiểm thử',json.dumps({'result':json.dumps({'files':preview_files},ensure_ascii=False)},ensure_ascii=False),app.utc_now()))
         db.execute('INSERT INTO task_products VALUES (?,1)',('web-preview-fixture',))
+        db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)',('incomplete-product-fixture','Sản phẩm còn thiếu mã nguồn','ollama','needs_review','Cần bổ sung tệp',json.dumps({'result':json.dumps({'files':[{'path':'README.md','content':'# Giữ nguyên hướng dẫn gốc'}]})}),app.utc_now()))
+        db.execute('INSERT INTO task_products VALUES (?,1)',('incomplete-product-fixture',))
+        db.execute('INSERT INTO task_requirements VALUES (?,?)',('incomplete-product-fixture',json.dumps({'contract_version':1,'kind':'application','manifest_source':'user','required_files':['main.py','tests/test_main.py','README.md']})))
     server = app.ThreadingHTTPServer(('127.0.0.1',int(os.environ.get('PORT','8989'))),app.Handler)
     server.serve_forever()

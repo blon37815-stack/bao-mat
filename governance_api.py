@@ -4,9 +4,17 @@ import urllib.parse
 
 import bot_tools
 import upgrade_proposals
+import product_quality
+from product_workflow import bind_report
 
 
 def get(handler, app, parsed_url):
+    if parsed_url.path.startswith('/api/tasks/') and parsed_url.path.endswith('/quality'):
+        parts = parsed_url.path.split('/')
+        if len(parts) != 5:
+            return handler.respond(404, {'error':'Không tìm thấy'})
+        status, result = product_quality.inspect_task(app,parts[3])
+        return handler.respond(status,result)
     if parsed_url.path == '/api/audit':
         try:
             query = urllib.parse.parse_qs(parsed_url.query)
@@ -105,7 +113,7 @@ def run_product_checks(app, task_id):
             {'paths':[item['path'] for item in product['files']]}, lambda: app.product_runner.check_product(product['files']))
     except bot_tools.ToolDenied as error:
         return 403, {'error':str(error)}
-    app.save_check(task_id, report)
+    app.save_check(task_id, bind_report(product['files'],report))
     if report['status'] == 'failed':
         with app.connect() as db:
             db.execute("UPDATE tasks SET status='needs_review',stage='Kiểm thử Docker thất bại; xem báo cáo và tạo phiên bản sửa' WHERE id=? AND status IN ('completed','approved','needs_review')", (task_id,))

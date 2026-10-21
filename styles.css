@@ -1382,3 +1382,31 @@ dialog::backdrop {
   display: block;
   margin: 16px 0;
 }
+/* Keep product evidence compact and independent of the conversation. */
+.quality-panel {
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.quality-layers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+.quality-layers p {
+  margin: 0;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+#quality-issues {
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+@media (max-width: 700px) {
+  .quality-layers {
+    grid-template-columns: 1fr;
+  }
+}

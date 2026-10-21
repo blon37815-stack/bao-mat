@@ -22,7 +22,7 @@ Không thể bảo đảm mọi bot/model bên ngoài tương thích ngay hoặc
 | Model | Hồ sơ/revision; chọn theo vai trò và nhà cung cấp; giới hạn đầu vào/đầu ra/thời hạn gọi; giữ cấu hình theo lượt | Kiểm tra năng lực và đo chất lượng trên máy đích; chưa có tự chọn/dự phòng model |
 | Workspace | Dự án/bộ nhớ riêng, workspace logic theo vai trò trong SQLite; bản sao base/candidate cho đề xuất nâng cấp | Workspace thư mục/tool calling bền vững theo bot |
 | Tài nguyên | 1 nhiệm vụ chạy, tối đa 10 chờ; mặc định 20 lượt gọi; quan sát CPU/RAM và NVIDIA khi có | Ngân sách context/token, ổ đĩa, thời gian toàn lượt, lịch nạp model và kiểm soát tài nguyên thực thi |
-| Chất lượng | Runner unittest Python trong Docker tùy chọn, lỗi đưa vào vòng sửa; giữ kiểm tra tĩnh và hạn mức | Runner web, test độc lập từ yêu cầu, đánh giá Ollama thật |
+| Chất lượng | Danh sách tệp bắt buộc cho mẫu/tự nhập, sinh từng tệp, bổ sung phần thiếu; bằng chứng đủ tệp/cú pháp/kiểm thử gắn hash; runner unittest Python trong Docker tùy chọn | Runner web, test độc lập từ yêu cầu, đánh giá Ollama thật |
 | Bảo trì dữ liệu | Gói mã/SQLite trước cập nhật; kiểm hash và phục hồi sang thư mục mới; chặn schema quá mới | Phục hồi và dọn backup tự động theo dung lượng |
 | Cập nhật | Bản sao đề xuất, diff/patch, duyệt/từ chối/tải ZIP; updater vẫn thử bản sao, sao lưu và khóa app | Áp dụng patch/PR tự động, tự chuyển lại phiên bản, kiểm thử nâng cấp toàn bộ trên Windows |
 | Nhật ký | ALLOW/BLOCK/WARN ở dispatcher, kết quả/thời lượng/đường dẫn; 500 sự kiện/việc, 5000 toàn app | Nhật ký chống chỉnh sửa và lưu trữ dài hạn |

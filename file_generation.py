@@ -5,6 +5,7 @@ import re
 from artifacts import parse_files, MAX_FILE_BYTES
 from ollama_transport import EmptyResponse
 from task_requirements import requirement_findings
+from product_contracts import ContractError
 
 
 def existing_files(state):
@@ -50,8 +51,12 @@ def generate_files(state, reply, progress):
     # Validate every path before it can be sent to a provider or packaged.
     parse_files(json.dumps({'files':[{'path':path,'content':''} for path in manifest]}))
     targets = manifest
-    if state.get('review') and state.get('repair_paths'):
-        requested = set(state['repair_paths'])
+    repairs = state.get('repair_paths') if state.get('review') else state.get('requirements',{}).get('repair_files')
+    if repairs:
+        requested = set(repairs)
+        limited = state.get('requirements',{}).get('repair_files')
+        if limited and requested.difference(limited):
+            raise ContractError('Kiểm tra yêu cầu sửa tệp ngoài phần bổ sung đã chọn; dùng Yêu cầu chỉnh sửa để sửa toàn bộ. Các tệp gốc được giữ nguyên.')
         targets = [path for path in manifest if path in requested]
         if not targets:
             targets = manifest

@@ -296,6 +296,9 @@
       if (selectedTask?.id === id) {
         $("#run-tests-status").textContent = "Kết quả: " + report.status;
         await loadChecks(id);
+        window.dispatchEvent(
+          new CustomEvent("workspace:checks", { detail: { id } }),
+        );
       }
     } catch (error) {
       $("#run-tests-status").textContent = error.message;

@@ -7,6 +7,13 @@ gói ghi commit và SHA-256 từng tệp để đối chiếu; file này không 
 
 ## Phần mới cần xem
 
+Đợt `0.4.0-dev`: xem `docs/CAP_NHAT_0_4.md`. `task_submission.py` tách
+khâu nhận nhiệm vụ; `product_contracts.py` kiểm danh sách và loại sản phẩm;
+`product_workflow.py` chốt kế hoạch tự nhập trước sinh từng tệp.
+`product_quality.py` và `quality_ui.js` phân tách đủ tệp/cú pháp/kiểm thử,
+gắn báo cáo Docker với SHA-256 nội dung và cho bổ sung tệp thiếu trên phiên
+bản riêng. Giữ schema 2/API 1. Các phần dưới mô tả các đợt trước.
+
 Đợt `0.3.0-dev`: xem `docs/CAP_NHAT_0_3.md`. `bot_tools.py` kiểm quyền ở
 luồng thực tế, giữ grants theo lượt/thu hồi hiện tại và audit có hạn mức,
 không lưu nội dung hay lỗi provider. `governance_api.py` tách các route quản trị. `upgrade_proposals.py` tạo bản sao
@@ -22,7 +29,7 @@ chạy sản phẩm trong Docker có giới hạn, không fallback host. `releas
 `launch_app.py`, `restore_app.py` chuẩn bị bản đích trên dữ liệu sao chép,
 sao lưu mã/SQLite và phục hồi sang thư mục mới. `task_commands.py` chỉ nối
 6 lệnh công khai, không giả lập toàn bộ ECC. Các đoạn dưới mô tả đợt trước;
-README và hướng dẫn 0.3 ở trên là hiện trạng mới hơn.
+README và hướng dẫn 0.4 ở trên là hiện trạng mới hơn.
 
 Đợt tách Công việc: task_deletion.py/app.py lưu ZIP trước xóa, so fingerprint
 trước/sau sao lưu và xóa một việc trong transaction. Phiên bản khác giữ
@@ -56,7 +63,7 @@ sản phẩm hoặc chạy Python. Xem RELEASE_NOTES.md cho số kiểm thử hi
    Giữ phần đã tạo khi hủy/lỗi, giới hạn 30 tệp/100 KB/tệp/1 MB tổng.
 3. task_requirements.py: tiêu chí JSON, liên kết HTML và ánh xạ lỗi về tệp.
    parse_review nhận file_issues tùy chọn, kiểm tra kiểu và tính nhất quán.
-4. evaluate.py/evaluation_cases.py: 9 ca, SQLite tạm, đo trước/sau sửa, số lần
+4. evaluate.py/evaluation_cases.py: 12 ca, SQLite tạm, đo trước/sau sửa, số lần
    gọi, thời gian, checkpoint và mục tiêu JSON >=8/10 chỉ sau đủ lượt.
 5. runtime_version.py: chụp commit/dirty/hash tại startup, endpoint version,
    hiển thị footer và commit của ứng dụng xuất báo cáo.

@@ -491,6 +491,8 @@ const templates = {
   },
 };
 let parentTask = null;
+let parentKind = null;
+let repairMissingOnly = false;
 const DRAFT_KEY = "bao-mat.draft.v1";
 function showRequirements() {
   const files = {
@@ -512,6 +514,30 @@ function showRequirements() {
   document.querySelector("#output-kind").textContent = checkbox.checked
     ? "Loại nhiệm vụ: tạo bộ tệp · có tải ZIP khi bộ tệp hợp lệ"
     : "Loại nhiệm vụ: văn bản · chỉ có báo cáo .md, không tạo ZIP";
+  document.querySelector("#product-contract").hidden = !checkbox.checked;
+  const kind = document.querySelector("#product-kind");
+  kind.disabled = Boolean(chosen || (parentTask && parentKind));
+  if (chosen)
+    kind.value =
+      document.querySelector("#task-template").value === "data"
+        ? "data"
+        : "application";
+  const paths = document
+    .querySelector("#required-files")
+    .value.split(/\r?\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const count = new Set([
+    ...(chosen ? chosen.split(", ").map((p) => p.split(" ")[0]) : []),
+    ...paths,
+  ]).size;
+  const overhead = document.querySelector("#expert").value === "none" ? 2 : 3;
+  const estimate = count ? count + overhead : null;
+  document.querySelector("#contract-budget").textContent = estimate
+    ? `Ước tính lượt đầu: ít nhất ${estimate} lượt gọi (kế hoạch, từng tệp, kiểm tra và chuyên gia nếu có). Giới hạn hiện tại: ${document.querySelector("#call-limit").value}. Vòng sửa có thể cần thêm lượt.`
+    : parentTask
+      ? "Giữ danh sách gốc; số lượt gọi tùy phần cần sửa. Hệ thống không tự tăng ngân sách."
+      : "Danh sách tệp sẽ xuất hiện trong kế hoạch. Lượt gọi vẫn nằm trong giới hạn bạn đặt; hệ thống không tự tăng ngân sách.";
 }
 function currentDraft() {
   return {
@@ -524,6 +550,14 @@ function currentDraft() {
     document_ids: [...selectedDocuments],
     project_id: selectedProject,
     call_limit: Number(document.querySelector("#call-limit").value),
+    product_kind: document.querySelector("#product-kind").value,
+    required_files: document
+      .querySelector("#required-files")
+      .value.split(/\r?\n/)
+      .map((p) => p.trim())
+      .filter(Boolean),
+    repair_missing: repairMissingOnly,
+    parent_kind: parentKind,
   };
 }
 function persistDraft() {
@@ -562,6 +596,17 @@ function restoreDraft() {
         .slice(0, 5);
     document.querySelector("#mode").value = saved.mode;
     document.querySelector("#product").checked = saved.product === true;
+    if (["application", "data", "documents"].includes(saved.product_kind))
+      document.querySelector("#product-kind").value = saved.product_kind;
+    if (
+      Array.isArray(saved.required_files) &&
+      saved.required_files.length <= 30 &&
+      saved.required_files.every(
+        (p) => typeof p === "string" && p.length <= 240,
+      )
+    )
+      document.querySelector("#required-files").value =
+        saved.required_files.join("\n");
     if (saved.expert === "auto" || Object.hasOwn(expertNames, saved.expert))
       document.querySelector("#expert").value = saved.expert;
     if (
@@ -583,6 +628,12 @@ function restoreDraft() {
       /^[a-zA-Z0-9_-]{1,64}$/.test(saved.parent_id)
     ) {
       parentTask = saved.parent_id;
+      parentKind = ["application", "data", "documents"].includes(
+        saved.parent_kind,
+      )
+        ? saved.parent_kind
+        : null;
+      repairMissingOnly = saved.repair_missing === true;
       document.querySelector("#revision-note").textContent =
         "Đang chỉnh sửa sản phẩm cũ: " + parentTask;
       document.querySelector("#revision-note").hidden = false;
@@ -595,10 +646,21 @@ function restoreDraft() {
       "Chưa đọc được bản nháp trên trình duyệt.";
   }
 }
-for (const id of ["prompt", "mode", "product", "expert", "call-limit"])
+for (const id of [
+  "prompt",
+  "mode",
+  "product",
+  "expert",
+  "call-limit",
+  "product-kind",
+  "required-files",
+])
   document
     .querySelector("#" + id)
-    .addEventListener(id === "prompt" ? "input" : "change", persistDraft);
+    .addEventListener(
+      ["prompt", "required-files"].includes(id) ? "input" : "change",
+      persistDraft,
+    );
 document.querySelector("#call-limit").addEventListener("input", () => {
   budgetTouched = true;
   persistDraft();
@@ -614,11 +676,16 @@ document.querySelector("#clear-draft").onclick = () => {
   window.dispatchEvent(new Event("workspace:documents"));
   document.querySelector("#product").checked = false;
   document.querySelector("#task-template").value = "";
+  document.querySelector("#required-files").value = "";
+  document.querySelector("#product-kind").value = "application";
   clearRevision();
 };
 document.querySelector("#task-template").onchange = (event) => {
   const template = templates[event.target.value];
-  if (!template) return;
+  if (!template) {
+    persistDraft();
+    return;
+  }
   if (
     (document.querySelector("#prompt").value.trim() || parentTask) &&
     !confirm("Thay yêu cầu đang soạn bằng mẫu và bỏ chọn phiên bản gốc?")
@@ -627,6 +694,7 @@ document.querySelector("#task-template").onchange = (event) => {
     return;
   }
   clearRevision();
+  document.querySelector("#required-files").value = "";
   document.querySelector("#prompt").value = template.prompt;
   document.querySelector("#product").checked = template.product;
   document.querySelector("#prompt").focus();
@@ -634,6 +702,8 @@ document.querySelector("#task-template").onchange = (event) => {
 };
 function clearRevision() {
   parentTask = null;
+  parentKind = null;
+  repairMissingOnly = false;
   document.querySelector("#revision-note").hidden = true;
   document.querySelector("#cancel-revision").hidden = true;
   persistDraft();
@@ -643,6 +713,16 @@ async function beginRevision(task) {
   window.WorkspaceUI?.showView("workspace");
   try {
     parentTask = task.id;
+    parentKind =
+      task.requirements?.kind ||
+      (task.requirements?.template
+        ? task.requirements.template === "data"
+          ? "data"
+          : "application"
+        : null);
+    repairMissingOnly = false;
+    document.querySelector("#product-kind").value = parentKind || "application";
+    document.querySelector("#required-files").value = "";
     selectedProject = task.project_id || task.runtime?.project_id || "default";
     if (document.querySelector("#task-project"))
       document.querySelector("#task-project").value = selectedProject;
@@ -682,6 +762,18 @@ async function beginRevision(task) {
   } catch (e) {
     if (parentTask === task.id) reportError(e.message);
   }
+}
+async function beginMissingRepair(task, paths) {
+  await beginRevision(task);
+  if (parentTask !== task.id) return;
+  repairMissingOnly = true;
+  document.querySelector("#prompt").value =
+    "Bổ sung các tệp bắt buộc còn thiếu hoặc rỗng: " +
+    paths.join(", ") +
+    ". Giữ nguyên nội dung các tệp khác và đáp ứng yêu cầu gốc.";
+  document.querySelector("#revision-note").textContent +=
+    " Chế độ bổ sung: lượt đầu chỉ sinh các tệp thiếu/rỗng; vòng kiểm tra vẫn đối chiếu toàn bộ sản phẩm.";
+  persistDraft();
 }
 async function viewDiff(id) {
   document.querySelector("#dialog-title").textContent = "So sánh phiên bản";
@@ -1231,6 +1323,8 @@ document.querySelector("#form").onsubmit = async (event) => {
     if (JSON.stringify(currentDraft()) === JSON.stringify(request)) {
       document.querySelector("#prompt").value = "";
       document.querySelector("#task-template").value = "";
+      document.querySelector("#required-files").value = "";
+      document.querySelector("#product-kind").value = "application";
       selectedDocuments = [];
       window.dispatchEvent(new Event("workspace:documents"));
       clearRevision();

@@ -112,7 +112,7 @@ class BotToolsTest(unittest.TestCase):
     def test_disabled_product_writes_stop_before_result_generation(self):
         self.save_tools('result', ['read_workspace','generate_text'])
         task = self.task(product=True)
-        with patch.object(app, 'ollama_reply', return_value='Kế hoạch') as provider:
+        with patch.object(app, 'ollama_reply', return_value='{"plan":"Kế hoạch","required_files":["main.py","README.md"]}') as provider:
             app.run(task, 'Yêu cầu thử quyền', 'ollama')
         self.assertEqual(provider.call_count, 1)
         row = self.get('/api/tasks/'+task)

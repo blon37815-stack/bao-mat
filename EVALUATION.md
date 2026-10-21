@@ -5,10 +5,12 @@ mới, lưu metadata trong báo cáo. CLI vẫn dùng SQLite tạm và mặc đ�
 chạy sản phẩm; cấu hình Docker trong app không được tự lấy vào bộ đánh giá.
 Runner Python trong ứng dụng được mô tả ở docs/CAP_NHAT_0_2.md.
 
-Bộ đánh giá có 9 ca cố định trong evaluation_cases.py, gồm JSON cơ bản,
+Bộ đánh giá có 12 ca cố định trong evaluation_cases.py, gồm JSON cơ bản,
 Unicode, escaping; Python cơ bản, lưu trữ, Unicode; web ghi chú, mobile,
-tìm kiếm. Các ca Python/web thay đổi yêu cầu nhưng hiện chỉ kiểm tra tĩnh;
-chưa chứng minh các tính năng được mô tả hoạt động.
+tìm kiếm; thêm 3 ca yêu cầu tự nhập: CLI tự lập danh sách, CLI với danh sách
+người dùng chỉ định và people.json. Các ca có tên tệp trong yêu cầu được đối
+chiếu độc lập với danh sách AI đề xuất. Mặc định chỉ kiểm tra tĩnh; không
+chứng minh các tính năng được mô tả hoạt động.
 
 ## Chạy và so sánh
 
@@ -24,7 +26,7 @@ Chạy 10 lượt một ca để đo mục tiêu ít nhất 8 lượt đạt:
 .\.venv\Scripts\python.exe evaluate.py --case data_basic --repeat 10 --run
 ```
 
-Chạy một lần cả 9 ca hoặc 10 lần mỗi ca JSON:
+Chạy một lần cả 12 ca hoặc 10 lần mỗi ca JSON:
 
 ```powershell
 .\.venv\Scripts\python.exe evaluate.py --suite all --run
@@ -50,19 +52,36 @@ giữ điều kiện đối chiếu.
 
 ## Ý nghĩa kết quả
 
+Từ 0.4 có thể dùng `--suite custom` để đo ba ca tự nhập. Muốn chạy unittest
+Python trong Docker, thêm `--sandbox`, ví dụ:
+
+```powershell
+.\.venv\Scripts\python.exe evaluate.py --case custom_cli_auto --repeat 10 --run --sandbox
+```
+
+Docker Linux và image cấu hình phải có sẵn; CLI kiểm tra trước khi gọi mô
+hình. Không tự cài thư viện trong image hoặc chạy mã trên máy thật. Khi
+chọn `--sandbox`, lượt chỉ đạt nếu kiểm thử Docker thực sự đạt; JSON/web
+không có unittest sẽ ghi chưa hỗ trợ và không đạt điều kiện đó.
+
 Báo cáo JSON nằm trong data/evaluations (hoặc --output đường-dẫn-mới).
 Không ghi đè báo cáo đã tồn tại. Mỗi lượt dùng nhiệm vụ/memory trống trong
 SQLite tạm; app.DB được khôi phục sau khi đo. Không truy cập SQLite người
-dùng và không chạy chương trình sản phẩm.
+dùng. Chỉ `--sandbox` mới chạy chương trình sản phẩm trong Docker.
 
 - passed: bộ tệp cuối đủ tiêu chí tĩnh, cú pháp được kiểm tra đạt và luồng
-  kết thúc completed. AI tự đánh giá đạt riêng không đủ.
+  kết thúc completed; khi chọn `--sandbox` còn cần Docker đạt. AI tự đánh
+  giá đạt riêng không đủ.
 - first_pass: bộ tệp ở lượt thực hiện đầu đã đạt tiêu chí tĩnh; không phải
   bảo đảm chức năng hay AI review đạt ngay.
 - issues, checked, skipped: lỗi cuối và phạm vi kiểm tra.
 - calls: số yêu cầu provider đã thử, có thể gồm yêu cầu lỗi/hủy; không phải
   số token hoặc chi phí.
 - seconds: thời gian toàn lượt, gồm kiểm tra và các vòng sửa.
+- requirements/content_sha256: danh sách cuối đã chốt và dấu nội dung bộ
+  tệp; execution chứa báo cáo chạy nếu có. sandbox_requested ghi lựa chọn,
+  functional_tests chỉ bật khi ít nhất một lượt thực sự chạy hơn 0 ca;
+  đọc từng execution để biết ca nào đạt/chưa đạt.
 - summary theo ca: số lượt, tỷ lệ cuối đạt, số lượt đầu đạt, thời gian trung
   vị. target_met chỉ có giá trị khi ca JSON có ít nhất 10 lượt; dưới 10 là
   null, không suy diễn đạt mục tiêu từ vài lần thử.

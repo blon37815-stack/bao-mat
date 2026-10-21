@@ -9,6 +9,7 @@
     <script defer src="/resource_ui.js"></script>
     <script defer src="/workspace_ui.js"></script>
     <script defer src="/platform_ui.js"></script>
+    <script defer src="/quality_ui.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Đến nội dung chính</a>
@@ -121,6 +122,38 @@
                   >
                 </div>
                 <p id="output-kind" class="progress-text" role="status"></p>
+                <details id="product-contract" class="advanced-compose" hidden>
+                  <summary>Bộ tệp và tiêu chí bàn giao</summary>
+                  <label for="product-kind"
+                    >Bạn muốn nhận loại sản phẩm nào?</label
+                  >
+                  <select id="product-kind">
+                    <option value="application">
+                      Ứng dụng · bắt buộc có mã nguồn
+                    </option>
+                    <option value="data">
+                      Dữ liệu · bắt buộc có tệp dữ liệu
+                    </option>
+                    <option value="documents">
+                      Tài liệu · được phép chỉ có Markdown
+                    </option>
+                  </select>
+                  <label for="required-files"
+                    >Tệp bắt buộc hoặc bổ sung (mỗi dòng một tệp)</label
+                  >
+                  <textarea
+                    id="required-files"
+                    rows="4"
+                    maxlength="4000"
+                    placeholder="src/main.py&#10;requirements.txt&#10;tests/test_main.py&#10;README.md"
+                  ></textarea>
+                  <p class="hint">
+                    Để trống: AI lập danh sách trước rồi sinh từng tệp. Mẫu có
+                    sẵn và phiên bản sửa giữ các tệp bắt buộc gốc. Giới hạn 30
+                    tệp; AI tự lập tối đa 12.
+                  </p>
+                  <p id="contract-budget" class="hint" role="status"></p>
+                </details>
                 <details class="advanced-compose">
                   <summary>Chuyên gia, lượt gọi và tài liệu đính kèm</summary>
                   <div class="compose-options">

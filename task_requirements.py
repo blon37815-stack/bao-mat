@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit, unquote
+from product_contracts import ContractError, validate_kind
 
 TEMPLATE_FILES = {
     'web':['index.html','style.css','app.js','README.md'],
@@ -17,6 +18,7 @@ def template_requirements(template):
     if template not in TEMPLATE_FILES:
         return {}
     spec = {'template':template, 'required_files':list(TEMPLATE_FILES[template]),
+            'contract_version':1, 'kind':'data' if template=='data' else 'application', 'manifest_source':'template',
             'instructions':'Tạo từng tệp thực tế trong files. Không chỉ mô tả cách tạo hoặc nhúng tất cả mã vào README.'}
     if template=='data':
         spec['data_schema'] = 'notes.json là mảng đúng 3 ghi chú: id duy nhất (chuỗi hoặc số nguyên), title và content không rỗng, created_at dạng ISO 8601. config.json là đối tượng JSON.'
@@ -68,6 +70,13 @@ def check_requirements(files, spec):
     contents = {file['path']:file['content'] for file in files}
     issues = ['Thiếu tệp thực tế '+path+' trong files; mã nằm trong README không thay thế được tệp này.'
               for path in spec.get('required_files',[]) if path not in contents]
+    issues += ['Tệp bắt buộc '+path+' đang rỗng.' for path in spec.get('required_files',[])
+               if path in contents and not contents[path].strip()]
+    if spec.get('kind') and not issues:
+        try:
+            validate_kind([p for p,c in contents.items() if c.strip()],spec['kind'])
+        except ContractError as error:
+            issues.append(str(error))
     if spec.get('template')=='web' and 'index.html' in contents:
         issues += check_web_links(contents['index.html'])
     if spec.get('template')!='data':
@@ -117,7 +126,10 @@ def requirement_findings(files, spec):
     present = {file['path'] for file in files}
     findings = [{'path':path, 'message':'Thiếu tệp thực tế '+path+' trong files; mã nằm trong README không thay thế được tệp này.'}
                 for path in spec.get('required_files',[]) if path not in present]
+    findings += [{'path':file['path'], 'message':'Tệp bắt buộc đang rỗng.'} for file in files
+                 if file['path'] in spec.get('required_files',[]) and not file['content'].strip()]
     single_spec = dict(spec, required_files=[])
+    single_spec.pop('kind',None)
     for file in files:
         findings.extend({'path':file['path'], 'message':message}
                         for message in check_requirements([file],single_spec))

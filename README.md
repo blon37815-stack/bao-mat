@@ -18,8 +18,9 @@ CrewAI, Letta và OpenHands chưa được tích hợp.
 Hiện trạng và thiết kế để mở rộng bot/model, tách workspace và cập nhật có
 phục hồi được lưu trong [Nền tảng bot](docs/NEN_TANG_BOT.md). Tài liệu phân
 biệt chức năng đã có với các phần cần xây, kèm tiêu chí kiểm chứng từng đợt.
-Bản `0.3.0-dev` bổ sung quyền công cụ theo vai trò, nhật ký và bản sao đề xuất
-nâng cấp để duyệt: [Hướng dẫn 0.3](docs/CAP_NHAT_0_3.md).
+Bản `0.4.0-dev` bổ sung danh sách tệp cho yêu cầu tự nhập, sinh từng tệp,
+bổ sung tệp thiếu và bảng bằng chứng: [Hướng dẫn 0.4](docs/CAP_NHAT_0_4.md).
+Quyền công cụ, nhật ký và bản sao đề xuất nâng cấp: [Hướng dẫn 0.3](docs/CAP_NHAT_0_3.md).
 Nền dự án/model/Docker/phục hồi: [Hướng dẫn 0.2](docs/CAP_NHAT_0_2.md).
 
 ## Cài, chạy và cập nhật trên Windows
@@ -383,7 +384,8 @@ bật; không thay thế sao lưu. Khóa, data, backups và venv được loại
 
 ## Bộ đánh giá Ollama cố định
 
-Xem EVALUATION.md. Có 9 ca (3 JSON, 3 Python, 3 web), không chạy mã sản phẩm.
+Xem EVALUATION.md. Có 12 ca (3 JSON, 3 Python, 3 web, 3 yêu cầu tự nhập).
+Mặc định không chạy mã sản phẩm; `--sandbox` chủ động chạy unittest trong Docker.
 Mặc định chỉ liệt kê, không gọi mô hình:
 
 ```powershell

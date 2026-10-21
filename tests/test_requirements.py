@@ -16,7 +16,7 @@ class RequirementTest(unittest.TestCase):
     def test_web_requires_real_links_to_bundled_styles_and_script(self):
         valid='<link rel="alternate stylesheet" href="./style.css?v=1"><script defer src="./app.js#main"></script>'
         self.assertEqual(check_web_links(valid),[])
-        files=[{'path':path,'content':valid if path=='index.html' else ''} for path in template_requirements('web')['required_files']]
+        files=[{'path':path,'content':valid if path=='index.html' else '/* Nội dung mẫu */'} for path in template_requirements('web')['required_files']]
         self.assertEqual(check_requirements(files,template_requirements('web')),[])
         files[0]['content']='<!-- '+valid+' --> <p>style.css and app.js</p>'
         self.assertEqual(len(check_requirements(files,template_requirements('web'))),2)

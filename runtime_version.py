@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 import subprocess
 
-APP_VERSION = '0.3.0-dev'
+APP_VERSION = '0.4.0-dev'
 ROOT = Path(__file__).resolve().parent
 
 

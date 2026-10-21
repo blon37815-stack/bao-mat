@@ -29,6 +29,9 @@ import product_runner
 import task_commands
 import sys
 import governance_api
+import task_submission
+import product_workflow
+from product_contracts import ContractError
 import bot_tools
 from release_support import application_lock
 from web_preview import preview_html
@@ -270,7 +273,10 @@ def save_product_revision(parent_id, files):
             db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)',(task_id,'Chỉnh sửa thủ công: '+original['prompt'][:3900],original['mode'],'needs_review','Phiên bản bạn chỉnh sửa · chưa kiểm thử chức năng',json.dumps({'result':result},ensure_ascii=False),stamp))
             db.execute('INSERT INTO task_products VALUES (?,1)',(task_id,))
             db.execute('INSERT INTO task_sources VALUES (?,?,?,?)',(task_id,parent_id,json.dumps(parent['files'],ensure_ascii=False),original['prompt']))
-            db.execute('INSERT INTO task_requirements SELECT ?,spec FROM task_requirements WHERE task_id=?',(task_id,parent_id))
+            stored=db.execute('SELECT spec FROM task_requirements WHERE task_id=?',(parent_id,)).fetchone()
+            requirements=json.loads(stored['spec']) if stored else {}
+            requirements.pop('repair_files',None)
+            db.execute('INSERT INTO task_requirements VALUES (?,?)',(task_id,json.dumps(requirements,ensure_ascii=False)))
             db.execute('INSERT INTO task_memory SELECT ?,content FROM task_memory WHERE task_id=?',(task_id,parent_id))
             db.execute('INSERT INTO task_documents SELECT ?,document_id,title,content FROM task_documents WHERE task_id=?',(task_id,parent_id))
             db.execute('INSERT INTO task_bot_preferences SELECT ?,spec FROM task_bot_preferences WHERE task_id=?',(task_id,parent_id))
@@ -578,6 +584,8 @@ def task_action(task_id, action):
                 except ValueError:
                     return 409, {'error':'Bộ tệp chưa hợp lệ; chưa thể duyệt'}
                 issues = check_requirements(files,get_requirements(task_id))
+                if not issues:
+                    issues = governance_api.product_quality.approval_issues(sys.modules[__name__],task_id,files)
                 if issues:
                     return 409, {'error':issues[0]}
             if row['mode'] == 'demo' or not json.loads(row['output']).get('result'):
@@ -801,12 +809,15 @@ def build_graph():
             execution = None
             generation_issues = []
             targets = []
+            planned_requirements = None
             attempts = state.get('attempts', 0) + (1 if key == 'result' else 0)
             worker_update(state['id'], stage=role + (f' · lượt {attempts}/3' if key in ('result','review') else ''))
             if state['mode'] == 'demo':
                 output = {'plan': '1. Làm rõ mục tiêu: '+state['prompt']+'\n2. Soạn kết quả.\n3. Kiểm tra theo yêu cầu.',
                           'result': 'Đây là kết quả mô phỏng cho: '+state['prompt']+'\nChưa gọi mô hình AI và chưa thực hiện thao tác bên ngoài.',
                           'review': 'Luồng ba bước đã chạy. Nội dung là mô phỏng, chưa chứng minh nhiệm vụ thực tế hoàn thành.'}[key]
+            elif key=='plan' and state.get('product') and state.get('requirements',{}).get('manifest_source')=='pending_plan':
+                output,planned_requirements = product_workflow.plan(sys.modules[__name__],state)
             elif key=='result' and state.get('product') and state.get('requirements',{}).get('required_files'):
                 partial = {k:state[k] for k in OUTPUT_KEYS if k in state}
                 output,generation_issues = template_result(state,partial,attempts)
@@ -861,7 +872,7 @@ def build_graph():
                         execution = bot_tools.invoke(connect, state['id'], 'review', 'run_python_tests',
                             {'paths':[item['path'] for item in files]},
                             lambda: product_runner.check_product(files, getattr(CALL_STATE, 'cancel_event', None)))
-                        save_check(state['id'], execution)
+                        save_check(state['id'], product_workflow.bind_report(files,execution))
                         if execution['status'] == 'failed':
                             failure = 'Kiểm thử Docker thất bại: '+execution.get('output', '')[-12000:]
                             current = parse_review(output)
@@ -882,6 +893,8 @@ def build_graph():
             else:
                 worker_update(state['id'], output=json.dumps(partial, ensure_ascii=False))
             changes = {key: output, 'attempts': attempts}
+            if planned_requirements is not None:
+                changes['requirements'] = planned_requirements
             if key=='result':
                 changes['generation_issues'] = generation_issues
             if key == 'review' and state['mode'] != 'demo':
@@ -928,7 +941,9 @@ def run(task_id, prompt, mode):
         state.update(expert=assignment['expert'],call_limit=assignment['call_limit'])
         with connect() as db:
             db.execute('INSERT OR IGNORE INTO task_assignment VALUES (?,?,?,?)',(task_id,assignment['expert'],assignment['call_limit'],assignment['source_commit']))
-        method = 'demo' if mode=='demo' else 'per_file' if state['product'] and state['requirements'].get('required_files') else 'bundle' if state['product'] else 'text'
+        method = ('demo' if mode=='demo' else 'per_file' if state['product'] and
+                  (state['requirements'].get('required_files') or state['requirements'].get('contract_version'))
+                  else 'bundle' if state['product'] else 'text')
         with connect() as db:
             db.execute('INSERT OR REPLACE INTO task_generation VALUES (?,?,0)',(task_id,method))
         source = task_source(task_id)
@@ -958,7 +973,7 @@ def run(task_id, prompt, mode):
         with connect() as db:
             db.execute("UPDATE tasks SET stage='Đã hủy · luồng xử lý đã dừng' WHERE id=? AND status='cancelled'", (task_id,))
         return
-    except (platform_config.ConfigurationError, bot_tools.ToolDenied) as error:
+    except (platform_config.ConfigurationError, bot_tools.ToolDenied, ContractError) as error:
         try:
             worker_update(task_id, status='needs_review', stage=str(error))
         except TaskCancelled:
@@ -1199,7 +1214,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed_request():
             return
         parsed_url = urllib.parse.urlsplit(self.path)
-        if parsed_url.path == '/api/audit' or self.path == '/api/upgrades' or self.path.startswith('/api/upgrades/'):
+        if (parsed_url.path == '/api/audit' or self.path == '/api/upgrades' or self.path.startswith('/api/upgrades/')
+                or parsed_url.path.startswith('/api/tasks/') and parsed_url.path.endswith('/quality')):
             return governance_api.get(self, sys.modules[__name__], parsed_url)
         if parsed_url.path == '/api/tasks':
             try:
@@ -1281,7 +1297,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == '/':
             return self.respond(200, (ROOT/'index.html').read_bytes(), 'text/html; charset=utf-8')
-        if self.path in ('/app.js','/resource_ui.js','/workspace_ui.js','/platform_ui.js','/styles.css'):
+        if self.path in ('/app.js','/resource_ui.js','/workspace_ui.js','/platform_ui.js','/quality_ui.js','/styles.css'):
             content_type = 'text/javascript' if self.path.endswith('.js') else 'text/css'
             return self.respond(200,(ROOT/self.path[1:]).read_bytes(),content_type+'; charset=utf-8')
         if self.path == '/api/memory':
@@ -1563,105 +1579,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(status, result)
         if self.path != '/api/tasks':
             return self.respond(404, {'error':'Không tìm thấy'})
-        try:
-            length = int(self.headers.get('Content-Length', '0'))
-            if not 0 < length <= 20000:
-                raise ValueError()
-            data = json.loads(self.rfile.read(length))
-            prompt, mode = data.get('prompt'), data.get('mode', 'demo')
-            command = task_commands.parse(prompt)
-            review_only = False
-            if command:
-                name, argument = command
-                if name == 'verify':
-                    status, report = run_product_checks(argument)
-                    return self.respond(status, report)
-                if name == 'code-review':
-                    data = dict(data, parent_id=argument, expert='architect', template='', product=False)
-                    prompt = 'Rà soát bộ mã nguồn đính kèm, liệt kê lỗi có bằng chứng, vị trí và cách sửa. Chỉ tạo báo cáo, không tạo lại bộ tệp và không tuyên bố đã chạy kiểm thử.'
-                    review_only = True
-                else:
-                    data = dict(data, template='plan' if name == 'plan' else name,
-                                expert='planner' if name == 'plan' else name, product=name != 'plan')
-                    prompt = argument
-            product = data.get('product', False)
-            template = data.get('template','')
-            requirements = template_requirements(template)
-            chosen_expert=data.get('expert','auto')
-            expert=resolve_expert(chosen_expert,template)
-            limit=valid_call_limit(data['call_limit']) if 'call_limit' in data else get_policy()['default_call_limit']
-            parent_id = data.get('parent_id')
-            document_ids=data.get('document_ids',[])
-            project_id=platform_config.identifier(data.get('project_id', 'default'))
-            if not isinstance(document_ids,list):raise ValueError()
-            if parent_id is not None and (not isinstance(parent_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', parent_id)):
-                raise ValueError()
-            if type(product) is not bool:
-                raise ValueError()
-            if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 4000 or mode not in ('demo','ai','ollama'):
-                raise ValueError()
-        except task_commands.CommandError as error:
-            return self.respond(400, {'error':str(error)})
-        except (ValueError, TypeError, AttributeError):
-            return self.respond(400, {'error':'Nhập nhiệm vụ từ 1–4000 ký tự và chế độ hợp lệ'})
-        if mode == 'ai' and not os.environ.get('OPENAI_API_KEY'):
-            return self.respond(400, {'error':'Chưa cấu hình OPENAI_API_KEY trong môi trường máy chủ'})
-        source = None
-        if parent_id:
-            status, parent = product_files(parent_id)
-            if status != 200:
-                return self.respond(status, parent)
-            source = json.dumps(parent['files'], ensure_ascii=False)
-            if len(source.encode('utf-8')) > 80000:
-                return self.respond(413, {'error':'Bộ mã gốc vượt 80 KB; hãy chọn sản phẩm nhỏ hơn để sửa bằng mô hình hiện tại'})
-            with connect() as db:
-                parent_row = db.execute('SELECT prompt FROM tasks WHERE id=?', (parent_id,)).fetchone()
-            previous = task_source(parent_id)
-            with connect() as db:
-                parent_runtime = platform_config.task_runtime(db, parent_id)
-            parent_project = (parent_runtime or {}).get('project_id', 'default')
-            if 'project_id' in data and project_id != parent_project:
-                return self.respond(400, {'error':'Phiên bản sửa phải cùng dự án với bản gốc'})
-            project_id = parent_project
-            original = ((previous['parent_prompt']+'\n\n') if previous else '') + parent_row['prompt']
-            if len(original) > 12000:
-                return self.respond(413, {'error':'Chuỗi yêu cầu quá dài; hãy tạo nhiệm vụ độc lập với yêu cầu được tóm tắt'})
-            product = True
-            if not requirements:
-                requirements = get_requirements(parent_id)
-            if 'expert' not in data:
-                expert=get_assignment(parent_id)['expert']
-            elif chosen_expert=='auto':
-                expert=resolve_expert('auto',requirements.get('template',''))
-        if requirements.get('required_files'):
-            product = True
-        if review_only:
-            product = False
-        if not product:
-            requirements = {}
-        with ADMISSION_LOCK:
-            if TASK_QUEUE.full():
-                return self.respond(429, {'error':'Hàng đợi đầy; hãy đợi hoặc hủy một việc đang chờ'})
-            task_id = uuid.uuid4().hex
-            with connect() as db:
-                if parent_id and not db.execute('SELECT 1 FROM tasks WHERE id=?',(parent_id,)).fetchone():
-                    return self.respond(409,{'error':'Bản gốc đã thay đổi; hãy chọn lại'})
-                try:
-                    platform_config.snapshot(db, task_id, mode, project_id=project_id, expert=expert, app_version=RUNTIME_INFO)
-                    workspace_data.snapshot_documents(db,task_id,document_ids)
-                except ValueError as error:
-                    db.rollback()
-                    return self.respond(400,{'error':str(error)})
-                db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)', (task_id, prompt.strip(), mode, 'queued', 'Chờ', '{}', datetime.now(timezone.utc).isoformat()))
-                workspace_data.snapshot_bots(db,task_id)
-                snapshot_memory(db, task_id, project_id)
-                db.execute('INSERT INTO task_products VALUES (?,?)', (task_id, int(product)))
-                db.execute('INSERT INTO task_requirements VALUES (?,?)',(task_id,json.dumps(requirements,ensure_ascii=False)))
-                db.execute('INSERT INTO task_assignment VALUES (?,?,?,?)',(task_id,expert,limit,ECC_COMMIT if expert!='none' else ''))
-                if source is not None:
-                    db.execute('INSERT INTO task_sources VALUES (?,?,?,?)', (task_id, parent_id, source, original))
-            enqueue_task(task_id, prompt.strip(), mode)
-        self.respond(201, {'id':task_id,'expert':expert,'call_limit':limit})
+        return task_submission.submit(self,sys.modules[__name__])
 
 
 if __name__ == '__main__':

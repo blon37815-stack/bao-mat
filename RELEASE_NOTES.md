@@ -1,3 +1,38 @@
+# 0.4.0-dev — Danh sách tệp và bằng chứng kiểm tra
+
+- Yêu cầu tạo sản phẩm tự nhập có loại ứng dụng/dữ liệu/tài liệu và danh sách
+  tệp bắt buộc do bạn nhập, hoặc kế hoạch JSON được kiểm tra trước khi sinh.
+  Ứng dụng chỉ có README/kiểm thử không được chấp nhận làm danh sách mã nguồn.
+- AI tự lập tối đa 12 tệp, lập lại kế hoạch sai tối đa một lần; người dùng chỉ
+  định tối đa 30 tệp. Giữ hạn mức, quyền công cụ và mô hình của nhiệm vụ.
+- Sinh từng tệp và sửa theo tệp áp dụng cho yêu cầu tự nhập mới. Tệp bắt buộc
+  rỗng bị đánh dấu chưa đạt. Mẫu và phiên bản sửa giữ tiêu chí gốc.
+- Bàn làm việc hiển thị đủ tệp/cú pháp/kiểm thử và ý kiến AI riêng; tải bằng
+  chứng JSON có dấu nội dung. Báo cáo Docker chỉ dùng cho đúng SHA-256 bộ
+  tệp và hơn 0 ca thực sự chạy. Báo cáo cũ thiếu dấu nội dung cần chạy lại.
+- Có nút điền yêu cầu bổ sung tệp thiếu trên phiên bản mới; giữ các tệp đã
+  có và bản gốc, dừng nếu vòng sửa muốn thay tệp ngoài phạm vi bổ sung.
+- Duyệt không bỏ qua tệp thiếu/rỗng, lỗi cú pháp đã biết hoặc kiểm thử Docker
+  thất bại gắn đúng bộ tệp. ZIP chưa đạt vẫn tải để rà soát, có nhãn rõ.
+- Bộ đánh giá tăng từ 9 lên 12 ca, có ba ca tự nhập và tùy chọn `--sandbox`
+  chạy unittest Docker. Không tự tải image, cài phụ thuộc hay chạy host.
+- Tách nhận nhiệm vụ, hợp đồng tệp, kế hoạch và bằng chứng ra module riêng.
+  Giữ API 1/schema 2, thư viện và các khu giao diện hiện tại.
+
+Hướng dẫn: [docs/CAP_NHAT_0_4.md](docs/CAP_NHAT_0_4.md).
+
+Kiểm chứng cục bộ ngày 21/10/2026: **187 unittest đạt**, gồm 4 ca Docker
+Linux thật; **27 luồng Chromium đạt**. Một luồng tự nhập với provider fixture
+còn tạo CLI và đạt **4 ca chức năng trong Docker** (tổng, trung bình, số sai,
+đầu vào rỗng), có báo cáo nội dung khớp. Kiểm tra phụ thuộc, định dạng và
+cú pháp đạt. Trạng thái CI cần đọc theo commit tương ứng trên GitHub.
+
+Chưa đo Ollama thật hay thử cập nhật trên Windows của người dùng. Test của
+sản phẩm vẫn do sản phẩm cung cấp, chưa có bộ nghiệm thu độc lập. Web chưa
+có runner chức năng. `completed` khi chỉ kiểm tra tĩnh vẫn ghi chưa kiểm
+thử chức năng; đủ tệp/cú pháp chưa bảo đảm đúng mọi yêu cầu. Các sản phẩm
+cũ thiếu danh sách được ghi chưa xác minh; không sửa ngược lịch sử.
+
 # 0.3.0-dev — Quyền công cụ, nhật ký và đề xuất nâng cấp
 
 - Hồ sơ năng lực trên thẻ bot; bật/tắt các công cụ thuộc vai trò. Dispatcher

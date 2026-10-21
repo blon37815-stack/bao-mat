@@ -194,7 +194,7 @@ test('resource controls persist policy and bounded expert work can retry with mo
   await expect(page.locator('#queue-state')).toContainText('/2 việc chờ');
   try {
     await page.locator('[data-view="workspace"]').click();
-    await page.locator('.advanced-compose summary').click();
+    await page.getByText('Chuyên gia, lượt gọi và tài liệu đính kèm',{exact:true}).click();
     await page.locator('#task-template').selectOption('data');
     await page.locator('#mode').selectOption('ollama');
     await page.locator('#call-limit').fill('3');
@@ -246,12 +246,12 @@ test('documents import, edit, attach to a task and delete without changing task 
   await page.locator('#save-document').click();
   await expect(page.locator('#document-status')).toContainText('Đã lưu');
   await page.locator('[data-view="workspace"]').click();
-  await page.locator('.advanced-compose summary').click();
+  await page.getByText('Chuyên gia, lượt gọi và tài liệu đính kèm',{exact:true}).click();
   await page.locator('#document-choices').getByLabel('Tài liệu đính kèm thử nghiệm').check();
   await page.locator('#mode').selectOption('demo');
   await page.locator('#prompt').fill('Việc có tài liệu để đọc lại');
   await page.reload();
-  await page.locator('.advanced-compose summary').click();
+  await page.getByText('Chuyên gia, lượt gọi và tài liệu đính kèm',{exact:true}).click();
   await expect(page.locator('#document-choices').getByLabel('Tài liệu đính kèm thử nghiệm')).toBeChecked();
   const created=page.waitForResponse(response=>response.url().endsWith('/api/tasks') && response.request().method()==='POST');
   await page.locator('#submit').click();
@@ -572,4 +572,80 @@ test('audit and proposal details remain usable on a narrow screen', async ({page
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
   await page.locator('#audit-panel').screenshot({path:process.env.BAO_REVIEW_SCREENSHOT_DIR ? process.env.BAO_REVIEW_SCREENSHOT_DIR+'/audit-mobile.png' : 'test-results/audit-mobile.png'});
   await post(page,'/api/upgrades/'+proposal.id+'/delete',{confirmation:proposal.id});
+});
+
+test('custom required files and product kind survive reload with a budget estimate', async ({page}) => {
+  await page.locator('#product').check();
+  await page.locator('#product-contract > summary').click();
+  await page.locator('#required-files').fill('src/main.py\ntests/test_main.py\nREADME.md');
+  await expect(page.locator('#contract-budget')).toContainText('ít nhất 6 lượt gọi');
+  await page.locator('#prompt').fill('Bản nháp có danh sách tệp riêng');
+  await page.reload();
+  await page.locator('#product-contract > summary').click();
+  await expect(page.locator('#required-files')).toHaveValue('src/main.py\ntests/test_main.py\nREADME.md');
+  await expect(page.locator('#product-kind')).toHaveValue('application');
+  await page.locator('#product-kind').selectOption('documents');
+  await page.locator('#required-files').fill('README.md');
+  await page.reload();
+  await page.locator('#product-contract > summary').click();
+  await expect(page.locator('#product-kind')).toHaveValue('documents');
+  await expect(page.locator('#required-files')).toHaveValue('README.md');
+});
+
+test('custom planning generates actual files and downloads bounded evidence without claiming function tests', async ({page}) => {
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.locator('#product').check();
+  await page.locator('#mode').selectOption('ollama');
+  await page.locator('#prompt').fill('Kiểm thử danh sách tệp tự nhập');
+  await page.locator('#submit').click();
+  await expect(page.locator('#quality-summary')).toContainText('Đủ tệp, đạt cú pháp');
+  await expect(page.locator('#quality-completeness')).toContainText('Đạt');
+  await expect(page.locator('#quality-execution')).toContainText('Chưa chạy');
+  await page.locator('#tab-code').click();
+  await expect(page.locator('#product-files button')).toHaveText(['main.py','tests/test_main.py','README.md']);
+  const downloading=page.waitForEvent('download');
+  await page.locator('#quality-download').click();
+  const saved=await downloading;
+  expect(saved.suggestedFilename()).toMatch(/^quality-.*\.json$/);
+  const fs=require('node:fs/promises');
+  const evidence=JSON.parse(await fs.readFile(await saved.path(),'utf8'));
+  expect(evidence.complete).toBe(true);expect(evidence.functional_verified).toBe(false);
+  expect(evidence.content_sha256).toMatch(/^[a-f0-9]{64}$/);
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+  await page.locator('#product-quality').screenshot({path:process.env.BAO_REVIEW_SCREENSHOT_DIR ? process.env.BAO_REVIEW_SCREENSHOT_DIR+'/quality-mobile.png' : 'test-results/quality-mobile.png'});
+  expect(errors).toEqual([]);
+});
+
+test('incomplete product offers missing-only repair and preserves the original README', async ({page}) => {
+  await taskList(page,'incomplete-product-fixture');
+  await page.locator('#tasks article').getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
+  await expect(page.locator('#quality-summary')).toContainText('Bộ tệp chưa đạt');
+  await expect(page.locator('#product-download-zip')).toContainText('chưa đạt');
+  await page.locator('#repair-missing').click();
+  await expect(page.locator('#prompt')).toHaveValue(/Bổ sung.*main.py/);
+  await page.reload();
+  await expect(page.locator('#revision-note')).toBeVisible();
+  await page.locator('#submit').click();
+  await expect(page.locator('#quality-summary')).toContainText('Đủ tệp, đạt cú pháp');
+  await page.locator('#tab-code').click();
+  await page.locator('#product-files button').filter({hasText:'README.md'}).click();
+  await expect(page.locator('#product-editor')).toHaveValue('# Giữ nguyên hướng dẫn gốc');
+  const original=await (await page.request.get('/api/tasks/incomplete-product-fixture/files')).json();
+  expect(original.files).toEqual([{path:'README.md',content:'# Giữ nguyên hướng dẫn gốc'}]);
+});
+
+test('README-only application is rejected while explicit documents remain supported', async ({page}) => {
+  await page.locator('#product').check();
+  await page.locator('#product-contract > summary').click();
+  await page.locator('#required-files').fill('README.md');
+  await page.locator('#prompt').fill('Kiểm thử danh sách tệp tự nhập');
+  await page.locator('#submit').click();
+  await expect(page.locator('#error')).toContainText('mã nguồn thực tế');
+  await expect(page.locator('#prompt')).toHaveValue('Kiểm thử danh sách tệp tự nhập');
+  await page.locator('#product-kind').selectOption('documents');
+  await page.locator('#submit').click();
+  await expect(page.locator('#quality-completeness')).toContainText('Đạt');
+  await expect(page.locator('#quality-syntax')).toContainText('Chưa hỗ trợ');
+  await expect(page.locator('#quality-execution')).toContainText('Chưa chạy');
 });
