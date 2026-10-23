@@ -100,9 +100,20 @@
                 <textarea
                   id="prompt"
                   maxlength="4000"
+                  aria-describedby="prompt-length prompt-limit-warning"
                   required
                   placeholder="Mô tả mục tiêu, các yêu cầu chính và kết quả bạn muốn nhận…"
                 ></textarea>
+                <p id="prompt-length" class="hint" role="status"></p>
+                <p id="prompt-limit-warning" role="alert" hidden></p>
+                <button
+                  id="open-prompt-documents"
+                  type="button"
+                  class="secondary"
+                  hidden
+                >
+                  Mở Tài liệu để đính kèm
+                </button>
                 <div class="compose-options">
                   <div>
                     <label for="mode">Chế độ xử lý</label

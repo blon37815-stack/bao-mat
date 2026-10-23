@@ -649,3 +649,26 @@ test('README-only application is rejected while explicit documents remain suppor
   await expect(page.locator('#quality-syntax')).toContainText('Chưa hỗ trợ');
   await expect(page.locator('#quality-execution')).toContainText('Chưa chạy');
 });
+
+test('oversized paste preserves draft, explains the limit and opens documents', async ({page}) => {
+  await page.locator('#prompt').fill('Yêu cầu đang soạn');
+  const paste=async text=>page.locator('#prompt').evaluate((node,text)=>{
+    const clipboardData=new DataTransfer();clipboardData.setData('text/plain',text);
+    return node.dispatchEvent(new ClipboardEvent('paste',{clipboardData,bubbles:true,cancelable:true}));
+  },text);
+  expect(await paste('x'.repeat(4001))).toBe(false);
+  await expect(page.locator('#prompt')).toHaveValue('Yêu cầu đang soạn');
+  await expect(page.locator('#prompt-limit-warning')).toContainText('chưa được chèn');
+  await page.locator('#open-prompt-documents').click();
+  await expect(page.locator('#view-documents')).toBeVisible();
+  await page.locator('[data-view="workspace"]').click();
+  await page.locator('#prompt').fill('x'.repeat(4000));
+  await expect(page.locator('#prompt-length')).toContainText('4000/4000');
+  await expect(page.locator('#prompt-limit-warning')).toContainText('thiếu phần cuối');
+  await page.locator('#prompt').evaluate(node=>node.setSelectionRange(0,node.value.length));
+  expect(await paste('Nội dung thay thế ngắn')).toBe(true);
+  await page.reload();
+  await expect(page.locator('#prompt-limit-warning')).toBeVisible();
+  await page.locator('#prompt').fill('Yêu cầu ngắn, nội dung dài đính kèm.');
+  await expect(page.locator('#prompt-limit-warning')).toBeHidden();
+});

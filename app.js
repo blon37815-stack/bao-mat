@@ -561,6 +561,7 @@ function currentDraft() {
   };
 }
 function persistDraft() {
+  updatePromptLimit();
   showRequirements();
   try {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(currentDraft()));
@@ -571,6 +572,38 @@ function persistDraft() {
       "Trình duyệt không cho lưu nháp; hãy giữ lại yêu cầu trước khi đóng trang.";
   }
 }
+function updatePromptLimit() {
+  const prompt = document.querySelector("#prompt");
+  document.querySelector("#prompt-length").textContent =
+    `${prompt.value.length}/${prompt.maxLength} ký tự · yêu cầu ngắn; nội dung dài đưa vào Tài liệu.`;
+  const full = prompt.value.length >= prompt.maxLength;
+  const warning = document.querySelector("#prompt-limit-warning");
+  warning.hidden = !full;
+  document.querySelector("#open-prompt-documents").hidden = !full;
+  if (full)
+    warning.textContent =
+      "Đã chạm giới hạn 4.000 ký tự. Kiểm tra xem nội dung có bị thiếu phần cuối; dùng Tài liệu cho văn bản dài.";
+}
+document.querySelector("#prompt").addEventListener("paste", (event) => {
+  const prompt = event.currentTarget;
+  const text = event.clipboardData?.getData("text/plain");
+  if (
+    !text ||
+    prompt.value.length -
+      (prompt.selectionEnd - prompt.selectionStart) +
+      text.length <=
+      prompt.maxLength
+  )
+    return;
+  event.preventDefault();
+  const warning = document.querySelector("#prompt-limit-warning");
+  warning.textContent =
+    "Đoạn dán vượt giới hạn 4.000 ký tự nên chưa được chèn; yêu cầu đang soạn được giữ nguyên. Mở Tài liệu và dán nội dung dài ở đó, rồi đính kèm khi giao việc.";
+  warning.hidden = false;
+  document.querySelector("#open-prompt-documents").hidden = false;
+});
+document.querySelector("#open-prompt-documents").onclick = () =>
+  window.WorkspaceUI?.showView("documents");
 function restoreDraft() {
   try {
     const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
@@ -1344,6 +1377,7 @@ document.querySelector("#form").onsubmit = async (event) => {
   }
 };
 restoreDraft();
+updatePromptLimit();
 showRequirements();
 refresh();
 setInterval(refresh, 2000);

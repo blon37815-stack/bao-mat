@@ -20,6 +20,8 @@ phục hồi được lưu trong [Nền tảng bot](docs/NEN_TANG_BOT.md). Tài 
 biệt chức năng đã có với các phần cần xây, kèm tiêu chí kiểm chứng từng đợt.
 Bản `0.4.0-dev` bổ sung danh sách tệp cho yêu cầu tự nhập, sinh từng tệp,
 bổ sung tệp thiếu và bảng bằng chứng: [Hướng dẫn 0.4](docs/CAP_NHAT_0_4.md).
+Bản vá `0.4.1-dev` xử lý log timeout nhàn rỗi và cảnh báo văn bản dài:
+[Hướng dẫn 0.4.1](docs/CAP_NHAT_0_4_1.md).
 Quyền công cụ, nhật ký và bản sao đề xuất nâng cấp: [Hướng dẫn 0.3](docs/CAP_NHAT_0_3.md).
 Nền dự án/model/Docker/phục hồi: [Hướng dẫn 0.2](docs/CAP_NHAT_0_2.md).
 

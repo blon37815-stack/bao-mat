@@ -1,3 +1,24 @@
+# 0.4.1-dev — Kết nối nhàn rỗi và giới hạn yêu cầu
+
+- Đóng yên lặng kết nối trình duyệt chưa gửi byte đầu sau 15 giây, gồm
+  preconnect và keep-alive; giữ tái sử dụng GET và giới hạn thời gian.
+  Timeout header/body/ghi phản hồi vẫn được ghi nhận bình thường.
+- Thêm bộ đếm yêu cầu, cảnh báo ở 4.000 ký tự và chặn đoạn dán vượt chỗ
+  trống thay vì để trình duyệt tự cắt; giữ bản đang soạn, mở Tài liệu từ
+  cảnh báo. Cảnh báo được khôi phục với bản nháp chạm giới hạn.
+- Bổ sung hướng dẫn các vai trò bám tiêu chí có căn cứ, phân biệt đề xuất
+  mới với yêu cầu bắt buộc và chưa đo với không đạt. Không thay kết luận
+  AI bằng kết quả đạt hoặc tuyên bố đã đo kiểm thật.
+- Thêm 4 ca socket thật và một ca Chromium cho paste/selection/bản nháp.
+  API 1/schema 2 và thư viện giữ nguyên.
+
+Hướng dẫn: [docs/CAP_NHAT_0_4_1.md](docs/CAP_NHAT_0_4_1.md).
+
+Kiểm chứng cục bộ ngày 23/10/2026: **191 unittest đạt**, gồm 4 ca Docker
+thật; **28 ca Chromium đạt**. Bốn ca socket tái hiện hai log nhàn rỗi trước
+vá và đều đạt sau vá. Chưa đo phản hồi Ollama thật cho hướng dẫn mới; phần
+này là điều chỉnh lời nhắc, không bảo đảm mô hình luôn tuân thủ.
+
 # 0.4.0-dev — Danh sách tệp và bằng chứng kiểm tra
 
 - Yêu cầu tạo sản phẩm tự nhập có loại ứng dụng/dữ liệu/tài liệu và danh sách
