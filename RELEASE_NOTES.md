@@ -27,6 +27,10 @@ Ca socket chờ luồng xử lý xong trước khi kiểm tra, không đóng lis
 đang được Windows theo dõi. Chờ hoàn tất công việc trong kiểm thử UI có
 giới hạn riêng 10 giây sau khi trace Windows ghi nhận chuyển trạng thái
 sau khoảng 7 giây; không đổi thời hạn xử lý của ứng dụng.
+Ngân sách tổng cho ca trình duyệt Windows là 60 giây sau khi trace ghi
+nhận Chrome khởi động/tải trang vượt 20 giây dù máy chủ đã trả tài nguyên
+200 trong vài chục mili giây. Không thêm retry; các assertion giữ giới hạn
+riêng 5 giây hoặc 10 giây khi chờ công việc nền.
 Chưa đo phản hồi Ollama thật cho hướng dẫn mới; phần
 này là điều chỉnh lời nhắc, không bảo đảm mô hình luôn tuân thủ.
 

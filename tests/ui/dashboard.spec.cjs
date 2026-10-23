@@ -193,7 +193,7 @@ test('cleanup previews, requires typed confirmation, preserves final output and 
 });
 
 test('resource controls persist policy and bounded expert work can retry with more calls', async ({page}) => {
-  test.setTimeout(30000); // Two separately bounded background runs in this case.
+  test.setTimeout(Math.max(test.info().timeout,30000)); // Two bounded background runs; preserve the Windows setup budget.
   await page.locator('[data-view="resources"]').click();
   await expect(page.locator('#resource-memory')).toContainText('GiB');
   await expect(page.locator('#resource-scope')).toContainText('máy chủ ứng dụng');
