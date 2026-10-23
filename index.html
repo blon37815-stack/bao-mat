@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Đội bot · Bao Mat</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script defer src="/app.js"></script>
+    <script defer src="/resource_ui.js"></script>
+    <script defer src="/workspace_ui.js"></script>
+    <script defer src="/platform_ui.js"></script>
+    <script defer src="/quality_ui.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Đến nội dung chính</a>
+    <aside class="sidebar" aria-label="Điều hướng chính">
+      <a class="brand" href="#workspace"
+        ><span class="brand-mark">B</span
+        ><span>BAO MAT<small>Không gian của bạn</small></span></a
+      >
+      <button class="new-task" id="new-task" disabled>＋ Giao việc mới</button>
+      <p class="nav-caption">KHÔNG GIAN LÀM VIỆC</p>
+      <nav class="main-nav">
+        <button data-view="workspace" aria-current="page" disabled>
+          <span aria-hidden="true">▦</span> Trao đổi
+        </button>
+        <button data-view="tasks" title="Mở danh sách công việc" disabled>
+          <span aria-hidden="true">▣</span> Công việc
+          <small id="nav-task-count">0</small>
+        </button>
+        <button data-view="team" disabled>
+          <span>◈</span> Đội bot <small>9</small>
+        </button>
+        <button data-view="documents" disabled><span>▤</span> Tài liệu</button>
+        <button data-view="resources" disabled>
+          <span>◷</span> Tài nguyên
+        </button>
+        <button data-view="settings" disabled><span>⚙</span> Thiết lập</button>
+      </nav>
+      <div class="sidebar-note">
+        <span class="online-dot"></span><strong>Chạy trên máy của bạn</strong>
+        <p id="sidebar-health">Đang kiểm tra kết nối…</p>
+        <small>Giữ Ollama và cửa sổ app mở khi đội đang xử lý.</small>
+      </div>
+      <footer><p id="app-version" role="status">Đang đọc phiên bản…</p></footer>
+    </aside>
+    <main id="main-content" tabindex="-1">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">BẠN CHỈ HUY · ĐỘI BOT THỰC HIỆN</p>
+          <h1 id="page-title">Trao đổi với đội bot</h1>
+          <p id="page-description">
+            Giao việc và đọc kết quả đang chọn. Lịch sử nằm riêng trong mục Công
+            việc.
+          </p>
+        </div>
+        <span class="local-badge"><span class="online-dot"></span> Cục bộ</span>
+      </header>
+      <p id="workspace-notice" role="status" hidden></p>
+      <a id="task-delete-backup" hidden>Tải bản sao trước khi xóa</a>
+
+      <section class="queue-panel" aria-label="Điều khiển hàng đợi">
+        <div>
+          <strong id="queue-state">Đang tải hàng đợi…</strong>
+          <p id="supervisor-state">
+            Một chuyên gia hướng dẫn, ba bot thực hiện lần lượt.
+          </p>
+        </div>
+        <button id="toggle-queue" class="secondary" disabled>
+          Tạm dừng hàng đợi
+        </button>
+      </section>
+      <section
+        class="page-view"
+        id="view-workspace"
+        aria-label="Không gian làm việc"
+      >
+        <div class="workspace-grid">
+          <div class="work-feed">
+            <section class="compose" id="compose-panel">
+              <div class="section-heading">
+                <h2>Giao việc cho đội</h2>
+                <span class="pill">01 · Bắt đầu ở đây</span>
+              </div>
+              <form id="form">
+                <label for="task-template">Bắt đầu từ mẫu</label>
+                <select id="task-template">
+                  <option value="">Tự nhập yêu cầu</option>
+                  <option value="plan">Lập kế hoạch sản phẩm</option>
+                  <option value="web">Trang ghi chú trên trình duyệt</option>
+                  <option value="python">Ứng dụng Python đơn giản</option>
+                  <option value="data">Mẫu dữ liệu JSON</option>
+                </select>
+                <p id="template-requirements" class="hint"></p>
+                <p id="revision-note" hidden></p>
+                <button id="cancel-revision" type="button" hidden>
+                  Bỏ chọn bản gốc
+                </button>
+                <label for="prompt">Bạn muốn đội làm gì?</label>
+                <textarea
+                  id="prompt"
+                  maxlength="4000"
+                  aria-describedby="prompt-length prompt-limit-warning"
+                  required
+                  placeholder="Mô tả mục tiêu, các yêu cầu chính và kết quả bạn muốn nhận…"
+                ></textarea>
+                <p id="prompt-length" class="hint" role="status"></p>
+                <p id="prompt-limit-warning" role="alert" hidden></p>
+                <button
+                  id="open-prompt-documents"
+                  type="button"
+                  class="secondary"
+                  hidden
+                >
+                  Mở Tài liệu để đính kèm
+                </button>
+                <div class="compose-options">
+                  <div>
+                    <label for="mode">Chế độ xử lý</label
+                    ><select id="mode">
+                      <option value="demo">Mô phỏng · không gọi AI</option>
+                      <option value="ollama">
+                        Ollama · AI trên máy, không phí API
+                      </option>
+                      <option value="ai">
+                        OpenAI · cần khóa API, có tính phí
+                      </option>
+                    </select>
+                  </div>
+                  <label class="checkbox-label"
+                    ><input id="product" type="checkbox" /> Tạo bộ mã nguồn có
+                    thể tải ZIP</label
+                  >
+                </div>
+                <p id="output-kind" class="progress-text" role="status"></p>
+                <details id="product-contract" class="advanced-compose" hidden>
+                  <summary>Bộ tệp và tiêu chí bàn giao</summary>
+                  <label for="product-kind"
+                    >Bạn muốn nhận loại sản phẩm nào?</label
+                  >
+                  <select id="product-kind">
+                    <option value="application">
+                      Ứng dụng · bắt buộc có mã nguồn
+                    </option>
+                    <option value="data">
+                      Dữ liệu · bắt buộc có tệp dữ liệu
+                    </option>
+                    <option value="documents">
+                      Tài liệu · được phép chỉ có Markdown
+                    </option>
+                  </select>
+                  <label for="required-files"
+                    >Tệp bắt buộc hoặc bổ sung (mỗi dòng một tệp)</label
+                  >
+                  <textarea
+                    id="required-files"
+                    rows="4"
+                    maxlength="4000"
+                    placeholder="src/main.py&#10;requirements.txt&#10;tests/test_main.py&#10;README.md"
+                  ></textarea>
+                  <p class="hint">
+                    Để trống: AI lập danh sách trước rồi sinh từng tệp. Mẫu có
+                    sẵn và phiên bản sửa giữ các tệp bắt buộc gốc. Giới hạn 30
+                    tệp; AI tự lập tối đa 12.
+                  </p>
+                  <p id="contract-budget" class="hint" role="status"></p>
+                </details>
+                <details class="advanced-compose">
+                  <summary>Chuyên gia, lượt gọi và tài liệu đính kèm</summary>
+                  <div class="compose-options">
+                    <div>
+                      <label for="expert">Chuyên gia cấp trên</label
+                      ><select id="expert">
+                        <option value="auto">Tự chọn theo mẫu</option>
+                        <option value="planner">ECC · Lập kế hoạch</option>
+                        <option value="architect">ECC · Kiến trúc</option>
+                        <option value="python">ECC · Python</option>
+                        <option value="web">ECC · Web</option>
+                        <option value="data">ECC · Dữ liệu JSON</option>
+                        <option value="none">
+                          Đội cơ bản · không thêm chuyên gia
+                        </option>
+                      </select>
+                    </div>
+                    <div>
+                      <label for="call-limit"
+                        >Tối đa lượt gọi mô hình cho việc này</label
+                      ><input
+                        id="call-limit"
+                        type="number"
+                        min="1"
+                        max="100"
+                        value="20"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <small
+                    >Mẫu JSON có chuyên gia thường cần 6 lượt ở lần đạt đầu. Hết
+                    lượt thì dừng và giữ kết quả; không tự tăng giới hạn.</small
+                  >
+                  <label>Tài liệu gửi cho đội · tối đa 5</label>
+                  <div id="document-choices" class="document-choices">
+                    <p>Chưa có tài liệu. Thêm tại mục Tài liệu.</p>
+                  </div>
+                  <p class="hint">
+                    Chỉ tài liệu bạn chọn mới được gửi cùng nhiệm vụ.
+                  </p>
+                </details>
+                <div class="actions">
+                  <button id="submit" disabled>Giao nhiệm vụ →</button
+                  ><button id="clear-draft" type="button" class="secondary">
+                    Xóa bản nháp
+                  </button>
+                </div>
+                <p id="draft-status" class="hint" role="status"></p>
+                <p id="error" role="alert"></p>
+              </form>
+              <small
+                >Đội bot tạo nội dung và bộ tệp. Có kiểm thử Python trong Docker
+                khi bật; chưa tự cài đặt hoặc triển khai sản phẩm.</small
+              >
+            </section>
+            <button
+              id="open-tasks"
+              class="secondary workspace-shortcut"
+              disabled
+            >
+              <span aria-hidden="true">▣</span> Mở danh sách công việc
+              <span id="workspace-task-count" class="pill">0</span>
+            </button>
+          </div>
+          <aside
+            class="inspector"
+            id="inspector"
+            aria-label="Xem và chỉnh sửa sản phẩm"
+          >
+            <div class="inspector-heading">
+              <div>
+                <p class="eyebrow">BÀN LÀM VIỆC</p>
+                <h2 id="inspector-title">Xem kết quả tại đây</h2>
+              </div>
+              <button
+                id="expand-inspector"
+                hidden
+                class="icon-button secondary"
+                title="Mở rộng khung sản phẩm"
+                aria-label="Mở rộng khung sản phẩm"
+              >
+                ⤢
+              </button>
+            </div>
+            <button
+              id="close-inspector"
+              hidden
+              class="secondary close-inspector"
+              aria-label="Đóng kết quả đang xem"
+              title="Đóng kết quả và giải phóng khung xem"
+            >
+              ×
+            </button>
+            <div id="inspector-empty" class="empty-state">
+              <div class="empty-icon">▧</div>
+              <h3>Một chỗ để đọc và sửa</h3>
+              <p>
+                Vào <strong>Công việc</strong>, chọn
+                <strong>Mở kết quả</strong> hoặc <strong>Xem bộ tệp</strong>.
+                Bạn có thể duyệt tệp, xem trước và lưu bản chỉnh sửa.
+              </p>
+              <div class="empty-steps">
+                <span>1 · Giao việc</span><span>2 · Đội xử lý</span
+                ><span>3 · Bạn xem và chỉnh</span>
+              </div>
+            </div>
+            <div id="inspector-body" hidden>
+              <p id="inspector-status" class="hint" role="status"></p>
+              <div
+                class="inspector-tabs"
+                role="tablist"
+                aria-label="Chế độ xem sản phẩm"
+              >
+                <button id="tab-output" role="tab" aria-selected="true">
+                  Kết quả</button
+                ><button id="tab-code" role="tab" aria-selected="false">
+                  Tệp &amp; chỉnh sửa</button
+                ><button id="tab-preview" role="tab" aria-selected="false">
+                  Xem trước
+                </button>
+              </div>
+              <div id="inspector-output"></div>
+              <div id="inspector-code" hidden>
+                <div class="file-workspace">
+                  <nav id="product-files" aria-label="Tệp trong sản phẩm"></nav>
+                  <div class="editor-pane">
+                    <label for="product-editor" id="editor-path"
+                      >Chọn một tệp</label
+                    ><textarea
+                      id="product-editor"
+                      spellcheck="false"
+                      aria-label="Nội dung tệp sản phẩm"
+                    ></textarea>
+                    <div class="editor-actions">
+                      <button id="delete-product-file" class="danger secondary">
+                        Bỏ tệp khỏi bản sửa</button
+                      ><a id="product-download-file">Tải tệp gốc</a>
+                    </div>
+                  </div>
+                </div>
+                <div class="save-bar">
+                  <span id="editor-state">Bản gốc được giữ nguyên.</span
+                  ><button id="save-product" disabled>
+                    Lưu thành phiên bản mới
+                  </button>
+                </div>
+              </div>
+              <div id="inspector-preview" hidden>
+                <div class="preview-toolbar">
+                  <label for="preview-entry">Trang HTML</label
+                  ><select id="preview-entry"></select
+                  ><button id="refresh-preview" class="secondary">
+                    Làm mới</button
+                  ><button
+                    id="preview-mobile"
+                    class="secondary"
+                    aria-pressed="false"
+                  >
+                    Khổ điện thoại
+                  </button>
+                </div>
+                <p class="hint">
+                  Xem trước HTML/CSS tĩnh · JavaScript và tài nguyên ngoài chưa
+                  chạy.
+                </p>
+                <div class="preview-surface">
+                  <iframe
+                    id="product-preview"
+                    title="Xem trước sản phẩm"
+                    sandbox=""
+                    referrerpolicy="no-referrer"
+                  ></iframe>
+                </div>
+                <pre id="preview-text" hidden></pre>
+              </div>
+              <p id="inspector-error" role="alert"></p>
+              <div class="inspector-downloads">
+                <a id="product-download-zip" hidden>Tải bộ tệp ZIP ↓</a
+                ><a id="product-report">Tải báo cáo ↓</a
+                ><button id="delete-open-task" class="danger secondary" hidden>
+                  Xóa công việc</button
+                ><button id="ask-revision" class="secondary" hidden>
+                  Nhờ bot chỉnh tiếp
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+      <section
+        class="page-view"
+        id="view-tasks"
+        hidden
+        aria-label="Danh sách công việc"
+      >
+        <div class="overview-strip" aria-label="Tổng quan nhiệm vụ">
+          <button data-task-filter="all" title="Xem tất cả công việc">
+            <span>Tổng công việc</span><strong id="stat-total">0</strong>
+          </button>
+          <button data-task-filter="running" title="Xem công việc đang làm">
+            <span>Đang xử lý</span><strong id="stat-running">0</strong>
+          </button>
+          <button data-task-filter="queued" title="Xem công việc đang chờ">
+            <span>Đang chờ</span><strong id="stat-waiting">0</strong>
+          </button>
+          <button
+            data-task-filter="needs_review"
+            title="Xem công việc cần bạn xem"
+          >
+            <span>Cần bạn xem</span><strong id="stat-review">0</strong>
+          </button>
+        </div>
+        <section id="task-section" class="task-section">
+          <h2>Công việc của bạn</h2>
+          <p class="hint">
+            Mỗi dòng là một công việc. Mở khi cần xem, hoặc xóa công việc đã kết
+            thúc cạnh phần tải.
+          </p>
+          <div class="filters">
+            <div>
+              <label for="search">Tìm trong yêu cầu hoặc mã nhiệm vụ</label
+              ><input
+                id="search"
+                type="search"
+                maxlength="200"
+                placeholder="Ví dụ: ghi chú"
+              />
+            </div>
+            <div>
+              <label for="filter">Trạng thái</label
+              ><select id="filter">
+                <option value="all">Tất cả</option>
+                <option value="running">Đang làm</option>
+                <option value="queued">Chờ</option>
+                <option value="completed">Đã chạy xong</option>
+                <option value="cancelled">Đã hủy</option>
+                <option value="approved">Bạn đã duyệt</option>
+                <option value="needs_review">Cần bạn xem</option>
+                <option value="failed">Thất bại</option>
+                <option value="interrupted">Bị gián đoạn</option>
+              </select>
+            </div>
+          </div>
+          <p id="summary" aria-live="polite"></p>
+          <div class="pagination">
+            <button id="previous-page" class="secondary">← Trang trước</button
+            ><span id="page-info"></span
+            ><button id="next-page" class="secondary">Trang sau →</button>
+          </div>
+          <div id="tasks"></div>
+        </section>
+      </section>
+      <section class="page-view" id="view-team" hidden aria-label="Đội bot">
+        <div class="section-heading">
+          <div>
+            <h2>Ai làm gì trong đội?</h2>
+            <p>
+              9 thành phần đang có: 1 bộ quản lý, 5 hồ sơ chuyên gia và 3 bot
+              thực thi.
+            </p>
+          </div>
+          <span class="pill">Một việc mỗi lúc</span>
+        </div>
+        <div class="team-flow">
+          <span>Quản lý tài nguyên</span><b>→</b
+          ><span>1 chuyên gia được chọn</span><b>→</b
+          ><span>Điều phối → Thực hiện → Kiểm tra</span>
+        </div>
+        <p class="hint">
+          Chuyên gia là vai trò thích ứng từ ECC, cùng dùng mô hình bạn chọn.
+          Các hồ sơ không chạy đồng thời.
+        </p>
+        <div id="bot-grid" class="bot-grid"></div>
+        <p id="bots-status" role="status"></p>
+      </section>
+      <section
+        class="page-view"
+        id="view-documents"
+        hidden
+        aria-label="Tài liệu"
+      >
+        <div class="section-heading">
+          <div>
+            <h2>Thư viện tài liệu</h2>
+            <p>
+              Giữ yêu cầu và ghi chú ở đây; chọn tài liệu cần gửi khi giao việc.
+            </p>
+          </div>
+          <button id="new-document">＋ Thêm tài liệu</button>
+        </div>
+        <div class="documents-grid">
+          <div class="panel">
+            <label for="document-search">Tìm tài liệu</label
+            ><input
+              id="document-search"
+              type="search"
+              placeholder="Tên tài liệu…"
+            />
+            <div id="document-list"></div>
+            <p id="document-count" class="hint"></p>
+          </div>
+          <form id="document-form" class="panel">
+            <h3 id="document-heading">Tài liệu mới</h3>
+            <label for="document-import"
+              >Nhập tệp văn bản · TXT, Markdown, JSON</label
+            ><input
+              id="document-import"
+              type="file"
+              accept=".txt,.md,.markdown,.json,text/plain,application/json"
+            /><label for="document-title">Tên tài liệu</label
+            ><input
+              id="document-title"
+              type="text"
+              maxlength="100"
+              required
+              placeholder="Ví dụ: Yêu cầu ứng dụng ghi chú"
+            /><label for="document-content">Nội dung · tối đa 20000 ký tự</label
+            ><textarea
+              id="document-content"
+              maxlength="20000"
+              required
+              placeholder="Dán nội dung hoặc nhập tệp ở trên…"
+            ></textarea>
+            <div class="actions">
+              <button id="save-document">Lưu tài liệu</button
+              ><button
+                id="delete-document"
+                type="button"
+                class="danger secondary"
+                hidden
+              >
+                Xóa tài liệu
+              </button>
+            </div>
+            <p id="document-status" role="status"></p>
+            <small
+              >Xóa khỏi thư viện không xóa bản tài liệu đã gửi trong lịch sử
+              nhiệm vụ.</small
+            >
+          </form>
+        </div>
+        <details class="panel" id="memory-panel" open>
+          <summary>Bộ nhớ dự án</summary>
+          <p>
+            Lưu mục tiêu, yêu cầu và quyết định chung để gửi kèm nhiệm vụ mới.
+            Không lưu mật khẩu hoặc khóa API.
+          </p>
+          <form id="memory-form">
+            <label for="memory">Thông tin chung · tối đa 8000 ký tự</label>
+            <textarea
+              id="memory"
+              maxlength="8000"
+              placeholder="Mục tiêu: …&#10;Yêu cầu: …&#10;Quyết định: …"
+            ></textarea>
+            <button id="save-memory">Lưu bộ nhớ</button
+            ><button id="clear-memory" type="button" class="danger secondary">
+              Xóa bộ nhớ chung
+            </button>
+            <p id="memory-status" role="status"></p>
+          </form>
+          <small
+            >Sửa bộ nhớ chỉ ảnh hưởng nhiệm vụ mới. Để trống rồi lưu để xóa bộ
+            nhớ chung; bản sao trong lịch sử vẫn được giữ.</small
+          >
+        </details>
+      </section>
+      <section
+        class="page-view"
+        id="view-resources"
+        hidden
+        aria-label="Tài nguyên"
+      >
+        <details class="panel" open id="resources-panel">
+          <summary>Hiệu suất và giới hạn</summary>
+          <p class="hint">
+            Chuyên gia dùng hướng dẫn thích ứng từ ECC và mô hình bạn chọn. Bộ
+            quản lý giới hạn lượt gọi bằng mã, không gọi thêm AI.
+          </p>
+          <div class="resource-grid">
+            <div>
+              <strong>CPU máy chủ</strong>
+              <p id="resource-cpu">Đang lấy mẫu…</p>
+            </div>
+            <div>
+              <strong>RAM máy chủ</strong>
+              <p id="resource-memory">Đang lấy mẫu…</p>
+            </div>
+            <div>
+              <strong>GPU</strong>
+              <p id="resource-gpu">Đang kiểm tra khả năng đọc…</p>
+            </div>
+          </div>
+          <p id="resource-active" class="progress-text"></p>
+          <small id="resource-scope"
+            >Số liệu của máy chạy app. Giới hạn lượt gọi và hàng đợi không phải
+            giới hạn cứng CPU/RAM/GPU.</small
+          >
+          <form id="resource-form">
+            <div class="compose-options">
+              <div>
+                <label for="default-call-limit"
+                  >Lượt gọi mặc định cho nhiệm vụ mới</label
+                ><input
+                  id="default-call-limit"
+                  type="number"
+                  min="1"
+                  max="100"
+                  value="20"
+                  required
+                />
+              </div>
+              <div>
+                <label for="max-waiting"
+                  >Tối đa việc chờ · vẫn chỉ chạy một việc mỗi lúc</label
+                ><input
+                  id="max-waiting"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value="10"
+                  required
+                />
+              </div>
+            </div>
+            <button id="save-resources" class="secondary">Lưu giới hạn</button>
+            <p id="resource-status" role="status"></p>
+          </form>
+        </details>
+      </section>
+      <section
+        class="page-view"
+        id="view-settings"
+        hidden
+        aria-label="Thiết lập"
+      >
+        <details class="panel" open>
+          <summary>Kết nối và dữ liệu</summary>
+          <p id="health-status" role="status">Chưa kiểm tra Ollama</p>
+          <button id="check-health" class="secondary">Kiểm tra Ollama</button>
+          <button id="backup" class="secondary">Tải bản sao lưu</button>
+          <p id="backup-status" role="status"></p>
+          <small
+            >Bản sao lưu chứa toàn bộ nhiệm vụ, sản phẩm và bộ nhớ. Giữ riêng,
+            không đăng lên GitHub.</small
+          >
+          <h3>Dọn dữ liệu cũ</h3>
+          <p>
+            Chỉ dọn khi không còn việc đang chạy hoặc chờ. Ứng dụng lưu bản sao
+            trước khi dọn; bộ nhớ dự án chung được giữ.
+          </p>
+          <div class="compose-options">
+            <div>
+              <label for="cleanup-scope">Nội dung cần dọn</label
+              ><select id="cleanup-scope">
+                <option value="history">
+                  Nội dung lịch sử từng lượt · giữ kết quả cuối
+                </option>
+                <option value="tasks">Toàn bộ nhiệm vụ cũ độc lập</option>
+              </select>
+            </div>
+            <div>
+              <label for="cleanup-days"
+                >Giữ dữ liệu trong số ngày gần nhất</label
+              ><input
+                id="cleanup-days"
+                type="number"
+                min="1"
+                max="3650"
+                value="30"
+                required
+              />
+            </div>
+          </div>
+          <small
+            >Nhiệm vụ có liên kết phiên bản hoặc chạy lại được giữ khi dọn toàn
+            bộ nhiệm vụ. Không tự dọn định kỳ.</small
+          >
+          <button id="preview-cleanup" class="secondary">
+            Xem trước dữ liệu sẽ dọn
+          </button>
+          <p id="cleanup-status" role="status"></p>
+          <div id="cleanup-preview" hidden>
+            <p id="cleanup-summary"></p>
+            <ul id="cleanup-examples"></ul>
+            <label for="cleanup-confirmation"
+              >Nhập DỌN để xác nhận xóa nội dung trong bản xem trước</label
+            >
+            <input
+              id="cleanup-confirmation"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button id="apply-cleanup" disabled>Lưu bản sao và dọn</button>
+          </div>
+          <a id="cleanup-backup" hidden>Tải bản sao trước khi dọn</a>
+        </details>
+      </section>
+    </main>
+    <dialog id="task-delete-dialog" aria-labelledby="task-delete-title">
+      <div class="dialog-heading">
+        <h2 id="task-delete-title">Xóa công việc này?</h2>
+        <button id="cancel-task-delete" class="secondary">Giữ lại</button>
+      </div>
+      <h3 id="task-delete-name"></h3>
+      <p id="task-delete-summary"></p>
+      <p class="hint">
+        Ứng dụng lưu bản sao trước khi xóa. Các công việc khác, thư viện tài
+        liệu và thiết lập bot được giữ. Bản sao vẫn chiếm dung lượng; xóa giúp
+        danh sách gọn hơn.
+      </p>
+      <p id="task-delete-status" role="status"></p>
+      <button id="confirm-task-delete" class="danger secondary" disabled>
+        Xóa công việc này
+      </button>
+    </dialog>
+    <dialog id="bot-dialog">
+      <div class="dialog-heading">
+        <h2 id="bot-dialog-title">Thiết lập bot</h2>
+        <button id="close-bot" class="secondary">Đóng ✕</button>
+      </div>
+      <p id="bot-description"></p>
+      <form id="bot-form">
+        <fieldset id="bot-tools">
+          <legend>Quyền công cụ theo vai trò</legend>
+        </fieldset>
+        <p class="hint">
+          Quyền bị tắt sẽ chặn lần dùng tiếp theo, kể cả công việc cũ. Bật quyền
+          chỉ áp dụng khi quyền đó có trong bản chụp công việc.
+        </p>
+        <label for="bot-model-ollama">Hồ sơ model khi dùng Ollama</label>
+        <select id="bot-model-ollama">
+          <option value="">Theo mặc định</option>
+        </select>
+        <label for="bot-model-ai">Hồ sơ model khi dùng OpenAI</label>
+        <select id="bot-model-ai">
+          <option value="">Theo mặc định</option>
+        </select>
+        <label for="bot-name">Tên hiển thị</label
+        ><input id="bot-name" type="text" maxlength="60" required /><label
+          for="bot-instructions"
+          >Hướng dẫn riêng · tối đa 1500 ký tự</label
+        ><textarea
+          id="bot-instructions"
+          maxlength="1500"
+          placeholder="Ví dụ: Viết giải thích ngắn bằng tiếng Việt, ưu tiên thư viện chuẩn…"
+        ></textarea>
+        <p class="hint">
+          Áp dụng cho nhiệm vụ mới. Nhiệm vụ đã giao giữ cấu hình cũ. Chế độ
+          Ollama không tự chuyển sang OpenAI.
+        </p>
+        <button id="save-bot">Lưu thiết lập bot</button
+        ><button type="button" id="reset-bot" class="secondary">
+          Về mặc định
+        </button>
+        <p id="bot-save-status" role="status"></p>
+      </form>
+    </dialog>
+    <dialog id="file-dialog">
+      <div class="dialog-heading">
+        <h2 id="dialog-title">Bộ tệp sản phẩm</h2>
+        <button id="close-files" class="secondary">Đóng ✕</button>
+      </div>
+      <p id="file-notice"></p>
+      <div id="file-list"></div>
+      <a id="download-file" hidden>Tải tệp đang xem</a>
+      <pre id="file-content"></pre>
+    </dialog>
+  </body>
+</html>

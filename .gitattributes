@@ -1,0 +1,4 @@
+# Preserve the exact bytes used by the pinned upstream checksums.
+third_party/ecc/** -text
+# Windows launchers use native line endings when checked out through Git.
+*.bat text eol=crlf

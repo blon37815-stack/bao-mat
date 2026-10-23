@@ -1,0 +1,190 @@
+"""Opt-in, sequential local Ollama evaluation; generated code is never executed."""
+import argparse
+from datetime import datetime, timezone
+import json
+import os
+from pathlib import Path
+import shutil
+import statistics
+import tempfile
+import time
+import uuid
+
+import app
+from artifacts import parse_files, check_files
+from evaluation_cases import CASES
+from expert_team import ECC_COMMIT, EXPERTS, resolve_expert
+from maintenance import ollama_health
+from runtime_version import RUNTIME_INFO
+from task_requirements import template_requirements, check_requirements
+from product_contracts import request_contract
+from product_quality import content_digest
+
+
+def case_contract(case, acceptance=False):
+    spec = template_requirements(case['template'])
+    required = case.get('expected_files') if acceptance and case.get('expected_files') else case.get('required_files')
+    return request_contract(spec,required,case.get('product_kind'))
+
+
+def inspect_result(result, case):
+    try:
+        files = parse_files(result)
+    except ValueError as error:
+        return {'passed':False,'issues':[str(error)],'checked':0,'skipped':0}
+    issues = check_requirements(files,case_contract(case,acceptance=True))
+    checks = check_files(files)
+    issues += [item['path']+': '+item['message'] for item in checks['findings'] if item['status']=='failed']
+    if checks['status']!='passed':
+        issues.append('Chưa có kết quả kiểm tra cú pháp đạt ở các tệp được hỗ trợ.')
+    if case.get('unicode_notes') or case.get('escaped_notes'):
+        try:
+            notes = json.loads(next(file['content'] for file in files if file['path']=='notes.json'))
+            texts = [note['content'] for note in notes]
+            if case.get('unicode_notes') and not any(any(ord(char)>127 for char in text) for text in texts):
+                issues.append('Ghi chú chưa có tiếng Việt có dấu theo ca đánh giá.')
+            if case.get('escaped_notes') and not any('\n' in text and '"' in text for text in texts):
+                issues.append('Chưa có content chứa cả xuống dòng và dấu ngoặc kép.')
+        except (ValueError,KeyError,TypeError,StopIteration):
+            issues.append('Không đọc được nội dung ghi chú để đánh giá ca bổ sung.')
+    return {'passed':not issues,'issues':issues,'checked':checks['checked'],'skipped':checks['skipped'],
+            'content_sha256':content_digest(files)}
+
+
+def summaries(trials):
+    grouped = {}
+    for trial in trials:
+        grouped.setdefault(trial['case_id'],[]).append(trial)
+    result = {}
+    for name,group in grouped.items():
+        count = len(group)
+        passed = sum(trial.get('passed',False) for trial in group)
+        result[name] = {'trials':count,'passed':passed,'pass_rate':passed/count,
+                        'first_pass':sum(trial.get('first_pass',False) for trial in group),
+                        'median_seconds':statistics.median(trial['seconds'] for trial in group),
+                        'target_met':passed/count>=.8 if count>=10 and group[0]['template']=='data' else None}
+    return result
+
+
+def checkpoint(path, report):
+    report['summary'] = summaries(report['trials'])
+    with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=path.parent,delete=False,suffix='.tmp') as saved:
+        temporary = Path(saved.name)
+        json.dump(report,saved,ensure_ascii=False,indent=2)
+    try:
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def run_evaluation(cases, repeat, output, expert='none', call_limit=20, sandbox=False):
+    app.valid_call_limit(call_limit)
+    resolve_expert(expert)
+    output = Path(output)
+    output.parent.mkdir(parents=True,exist_ok=True)
+    report = {'provider':'ollama','model':os.environ.get('OLLAMA_MODEL','qwen3:4b'),
+              'app':RUNTIME_INFO,'expert':expert,'call_limit':call_limit,'started_at':app.utc_now(),'status':'running',
+              'functional_tests':False,'sandbox_requested':sandbox,
+              'acceptance':'Final artifact static checks AND completed workflow'+(' AND passed Docker tests' if sandbox else '')+'; target >=8/10 for each JSON case.',
+              'trials':[],'summary':{}}
+    # Reserve a new report; never overwrite results from an earlier evaluation.
+    with output.open('x',encoding='utf-8') as saved:
+        json.dump(report,saved,ensure_ascii=False,indent=2)
+    original_db = app.DB
+    try:
+        with tempfile.TemporaryDirectory(prefix='bao-mat-evaluation-') as temporary:
+            app.DB = Path(temporary)/'tasks.sqlite3'
+            for case in cases:
+                for number in range(1,repeat+1):
+                    task_id = uuid.uuid4().hex
+                    with app.connect() as db:
+                        db.execute('INSERT INTO tasks VALUES (?,?,?,?,?,?,?)',(task_id,case['prompt'],'ollama','queued','','{}',app.utc_now()))
+                        db.execute('INSERT INTO task_products VALUES (?,1)',(task_id,))
+                        db.execute('INSERT INTO task_requirements VALUES (?,?)',(task_id,json.dumps(case_contract(case),ensure_ascii=False)))
+                        if sandbox:
+                            db.execute('INSERT INTO execution_policy VALUES (1,1) ON CONFLICT(id) DO UPDATE SET enabled=1')
+                        selected=resolve_expert(expert,case['template'])
+                        db.execute('INSERT INTO task_assignment VALUES (?,?,?,?)',(task_id,selected,call_limit,ECC_COMMIT if selected!='none' else ''))
+                        app.workspace_data.snapshot_bots(db, task_id)
+                        app.platform_config.snapshot(db, task_id, 'ollama', expert=selected, app_version=RUNTIME_INFO)
+                    print(f"{case['id']} {number}/{repeat}",flush=True)
+                    started = time.monotonic()
+                    trial = {'case_id':case['id'],'template':case['template'],'repeat':number,'task_id':task_id}
+                    try:
+                        app.run(task_id,case['prompt'],'ollama')
+                    except KeyboardInterrupt:
+                        trial.update(status='interrupted',passed=False,first_pass=False,seconds=round(time.monotonic()-started,3))
+                        report['trials'].append(trial)
+                        raise
+                    with app.connect() as db:
+                        row = db.execute(app.TASK_SELECT+' WHERE t.id=?',(task_id,)).fetchone()
+                        runtime = app.platform_config.public_runtime(app.platform_config.task_runtime(db, task_id))
+                    task = app.public_task(row)
+                    with app.connect() as db:
+                        executed=db.execute('SELECT spec FROM task_checks WHERE task_id=? ORDER BY attempt DESC LIMIT 1',(task_id,)).fetchone()
+                    execution=json.loads(executed['spec']) if executed else None
+                    if execution and execution.get('tests',0)>0:
+                        report['functional_tests']=True
+                    check = inspect_result(json.loads(task['output']).get('result',''),case)
+                    _,history = app.task_history(task_id)
+                    first = next((step['output'] for step in history['steps'] if step['role']=='result' and step['status']=='completed'),'')
+                    trial.update(status=task['status'],passed=check['passed'] and task['status']=='completed' and (not sandbox or bool(execution and execution['status']=='passed')),
+                                 first_pass=inspect_result(first,case)['passed'] if first else False,
+                                 issues=check['issues'],checked=check['checked'],skipped=check['skipped'],
+                                 calls=task['model_calls'],seconds=round(time.monotonic()-started,3), runtime=runtime,
+                                 requirements=task['requirements'],execution=execution)
+                    trial['content_sha256']=check.get('content_sha256')
+                    report['trials'].append(trial)
+                    checkpoint(output,report)
+                    print('  '+('Đạt tĩnh và luồng' if trial['passed'] else 'Chưa đạt')+f" · {trial['seconds']} giây · {trial['calls']} yêu cầu",flush=True)
+            report['status'] = 'completed'
+    except KeyboardInterrupt:
+        report['status'] = 'interrupted'
+    except Exception:
+        report['status'] = 'error'
+        raise
+    finally:
+        app.DB = original_db
+        report['finished_at'] = app.utc_now()
+        checkpoint(output,report)
+    return report
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--suite',choices=['all','data','python','web','custom'],default='all')
+    parser.add_argument('--case',choices=[case['id'] for case in CASES])
+    parser.add_argument('--repeat',type=int,default=1)
+    parser.add_argument('--expert',choices=['auto','none',*EXPERTS],default='auto')
+    parser.add_argument('--call-limit',type=int,default=20)
+    parser.add_argument('--run',action='store_true',help='Actually call local Ollama; without this flag only list cases.')
+    parser.add_argument('--sandbox',action='store_true',help='Opt in to Python unittest in local Docker; no automatic dependency installation.')
+    parser.add_argument('--output',type=Path)
+    args = parser.parse_args(argv)
+    if not 1<=args.repeat<=100:
+        parser.error('--repeat must be 1..100')
+    if not 1<=args.call_limit<=100:
+        parser.error('--call-limit must be 1..100')
+    cases = [case for case in CASES if (not args.case or case['id']==args.case) and (args.suite=='all' or case['template']==args.suite or args.suite=='custom' and not case['template'])]
+    if not cases:
+        parser.error('Case and suite do not match')
+    if not args.run:
+        for case in cases:print(case['id']+' · '+(case['template'] or 'custom')+' · '+case['prompt'])
+        print('Chỉ liệt kê. Thêm --run để gọi Ollama; không chạy mã sản phẩm.')
+        return 0
+    if any(case['template']=='web' for case in cases) and shutil.which('node') is None:
+        parser.error('Web evaluation needs Node.js syntax checks; install Node or choose --suite data/python')
+    if args.sandbox and app.product_runner.health()['status'] != 'ready':
+        parser.error('Docker/image not ready; no inference or host execution was started')
+    health = ollama_health(os.environ.get('OLLAMA_BASE_URL','http://127.0.0.1:11434'),os.environ.get('OLLAMA_MODEL','qwen3:4b'))
+    if health['status']!='ready':
+        parser.error('Ollama/model not ready; no inference was started')
+    output = args.output or Path('data/evaluations')/('evaluation-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:8]+'.json')
+    report = run_evaluation(cases,args.repeat,output,args.expert,args.call_limit,args.sandbox)
+    print('Báo cáo: '+str(output.resolve()))
+    print(json.dumps(report['summary'],ensure_ascii=False,indent=2))
+    return 130 if report['status']=='interrupted' else 0 if all(trial['passed'] for trial in report['trials']) else 1
+
+
+if __name__=='__main__':
+    raise SystemExit(main())

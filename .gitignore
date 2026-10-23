@@ -1,0 +1,10 @@
+.venv/
+.runtime-envs/
+__pycache__/
+data/
+backups/
+.env
+*.log
+node_modules/
+test-results/
+playwright-report/

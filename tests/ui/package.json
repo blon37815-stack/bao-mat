@@ -1,0 +1,13 @@
+{
+  "name": "bao-mat-ui-tests",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "format": "prettier --end-of-line auto --write ../../app.js ../../resource_ui.js ../../workspace_ui.js ../../platform_ui.js ../../quality_ui.js ../../index.html ../../styles.css",
+    "format:check": "prettier --end-of-line auto --check ../../app.js ../../resource_ui.js ../../workspace_ui.js ../../platform_ui.js ../../quality_ui.js ../../index.html ../../styles.css"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "prettier": "3.9.10"
+  }
+}
