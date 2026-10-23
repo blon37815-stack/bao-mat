@@ -19,6 +19,10 @@ Hướng dẫn: [docs/CAP_NHAT_0_4_1.md](docs/CAP_NHAT_0_4_1.md).
 Kiểm chứng cục bộ ngày 23/10/2026: **192 unittest đạt**, gồm 4 ca Docker
 thật; **28 ca Chromium đạt**. Năm ca socket gồm hai ca tái hiện log nhàn
 rỗi và một ca reset tái hiện lỗi chưa được bắt trước vá; đều đạt sau vá.
+Ca socket chờ luồng xử lý xong trước khi kiểm tra, không đóng listener
+đang được Windows theo dõi. Chờ hoàn tất công việc trong kiểm thử UI có
+giới hạn riêng 10 giây sau khi trace Windows ghi nhận chuyển trạng thái
+sau khoảng 7 giây; không đổi thời hạn xử lý của ứng dụng.
 Chưa đo phản hồi Ollama thật cho hướng dẫn mới; phần
 này là điều chỉnh lời nhắc, không bảo đảm mô hình luôn tuân thủ.
 

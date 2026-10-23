@@ -1,4 +1,7 @@
 const {test, expect} = require('@playwright/test');
+// Windows traces show background workflows settling after about 7 seconds,
+// including the 2-second UI poll. Keep other UI assertions at their default.
+const taskCompletion = {timeout:10000};
 
 async function post(page, path, payload) {
   const {token} = await (await page.request.get('/api/session')).json();
@@ -38,7 +41,7 @@ test('per-file workflow with a fixture provider shows three files and request co
   await page.locator('#submit').click();
   await taskList(page);
   const card=page.locator('#tasks article').filter({hasText:'Kiểm thử sinh từng tệp trên trình duyệt'});
-  await expect(card).toContainText('AI đánh giá đạt');
+  await expect(card).toContainText('AI đánh giá đạt',taskCompletion);
   await expect(card).toContainText('Sinh từng tệp riêng · 6 lượt yêu cầu mô hình');
   await expect(card).toContainText('ECC · Dữ liệu JSON → Đội thực thi · lượt gọi 6/20');
   await card.getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
@@ -184,6 +187,7 @@ test('cleanup previews, requires typed confirmation, preserves final output and 
 });
 
 test('resource controls persist policy and bounded expert work can retry with more calls', async ({page}) => {
+  test.setTimeout(30000); // Two separately bounded background runs in this case.
   await page.locator('[data-view="resources"]').click();
   await expect(page.locator('#resource-memory')).toContainText('GiB');
   await expect(page.locator('#resource-scope')).toContainText('máy chủ ứng dụng');
@@ -202,7 +206,7 @@ test('resource controls persist policy and bounded expert work can retry with mo
     await page.locator('#submit').click();
     await taskList(page);
     const card=page.locator('#tasks article').filter({hasText:'Kiểm thử sinh từng tệp trên trình duyệt'}).first();
-    await expect(card).toContainText('Đã dùng hết giới hạn lượt gọi');
+    await expect(card).toContainText('Đã dùng hết giới hạn lượt gọi',taskCompletion);
     await expect(card).toContainText('lượt gọi 3/3');
     await card.getByRole('button',{name:'Xem bộ tệp',exact:true}).click();
     await expect(page.locator('#product-files button')).toHaveText(['notes.json']);
@@ -211,7 +215,7 @@ test('resource controls persist policy and bounded expert work can retry with mo
     await taskList(page);
     await moreActions(card);
     await card.getByRole('button',{name:'Chạy lại từ đầu'}).click();
-    await expect(card).toContainText('AI đánh giá đạt');
+    await expect(card).toContainText('AI đánh giá đạt',taskCompletion);
     await expect(card).toContainText('lượt gọi 6/6');
   } finally {
     await post(page,'/api/resource-policy',{default_call_limit:20,max_waiting:10});
@@ -450,7 +454,7 @@ test('project and model settings reach a run and stay frozen after model edits',
   await page.locator('#mode').selectOption('ollama');
   await page.locator('#prompt').fill('Kiểm thử sinh từng tệp trên trình duyệt');
   await page.locator('#submit').click();
-  await expect(page.locator('#inspector-status')).toContainText('AI đánh giá đạt');
+  await expect(page.locator('#inspector-status')).toContainText('AI đánh giá đạt',taskCompletion);
   await page.locator('#run-workspace summary').click();
   await expect(page.locator('#run-config')).toContainText('browser-project/');
   await expect(page.locator('#run-config')).toContainText('browser-local v1');
@@ -598,7 +602,7 @@ test('custom planning generates actual files and downloads bounded evidence with
   await page.locator('#mode').selectOption('ollama');
   await page.locator('#prompt').fill('Kiểm thử danh sách tệp tự nhập');
   await page.locator('#submit').click();
-  await expect(page.locator('#quality-summary')).toContainText('Đủ tệp, đạt cú pháp');
+  await expect(page.locator('#quality-summary')).toContainText('Đủ tệp, đạt cú pháp',taskCompletion);
   await expect(page.locator('#quality-completeness')).toContainText('Đạt');
   await expect(page.locator('#quality-execution')).toContainText('Chưa chạy');
   await page.locator('#tab-code').click();
@@ -627,7 +631,7 @@ test('incomplete product offers missing-only repair and preserves the original R
   await page.reload();
   await expect(page.locator('#revision-note')).toBeVisible();
   await page.locator('#submit').click();
-  await expect(page.locator('#quality-summary')).toContainText('Đủ tệp, đạt cú pháp');
+  await expect(page.locator('#quality-summary')).toContainText('Đủ tệp, đạt cú pháp',taskCompletion);
   await page.locator('#tab-code').click();
   await page.locator('#product-files button').filter({hasText:'README.md'}).click();
   await expect(page.locator('#product-editor')).toHaveValue('# Giữ nguyên hướng dẫn gốc');
@@ -645,7 +649,7 @@ test('README-only application is rejected while explicit documents remain suppor
   await expect(page.locator('#prompt')).toHaveValue('Kiểm thử danh sách tệp tự nhập');
   await page.locator('#product-kind').selectOption('documents');
   await page.locator('#submit').click();
-  await expect(page.locator('#quality-completeness')).toContainText('Đạt');
+  await expect(page.locator('#quality-completeness')).toContainText('Đạt',taskCompletion);
   await expect(page.locator('#quality-syntax')).toContainText('Chưa hỗ trợ');
   await expect(page.locator('#quality-execution')).toContainText('Chưa chạy');
 });

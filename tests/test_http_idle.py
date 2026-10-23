@@ -17,16 +17,19 @@ class HTTPIdleTest(unittest.TestCase):
 
             def handle(self):
                 self.server.waiting.set()
+                super().handle()
+
+        class ObservedServer(app.ThreadingHTTPServer):
+            def process_request_thread(self, request, client_address):
                 try:
-                    super().handle()
+                    super().process_request_thread(request, client_address)
                 finally:
-                    self.server.finished.set()
+                    self.finished.set()
         self.handler = ShortTimeoutHandler
         patcher = patch.object(self.handler, 'log_error')
         self.errors = patcher.start()
         self.addCleanup(patcher.stop)
-        self.server = app.ThreadingHTTPServer(('127.0.0.1', 0), self.handler)
-        self.server.daemon_threads = False  # server_close joins request handlers.
+        self.server = ObservedServer(('127.0.0.1', 0), self.handler)
         self.server.waiting = threading.Event()
         self.server.finished = threading.Event()
         self.worker = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -58,8 +61,7 @@ class HTTPIdleTest(unittest.TestCase):
             client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
             client.close()
             self.assertTrue(self.server.finished.wait(3))
-            # Wait for the server's exception handler too, if one was entered.
-            self.server.server_close()
+            # finished is signaled after the server's exception handler returns.
             uncaught.assert_not_called()
             self.errors.assert_not_called()
 
