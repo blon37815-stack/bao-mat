@@ -1,6 +1,8 @@
 """Real sockets distinguish idle browser connections from stalled requests."""
 import http.client
+import os
 import socket
+import struct
 import threading
 import unittest
 from unittest.mock import patch
@@ -12,11 +14,21 @@ class HTTPIdleTest(unittest.TestCase):
     def setUp(self):
         class ShortTimeoutHandler(app.Handler):
             timeout = .25
+
+            def handle(self):
+                self.server.waiting.set()
+                try:
+                    super().handle()
+                finally:
+                    self.server.finished.set()
         self.handler = ShortTimeoutHandler
         patcher = patch.object(self.handler, 'log_error')
         self.errors = patcher.start()
         self.addCleanup(patcher.stop)
         self.server = app.ThreadingHTTPServer(('127.0.0.1', 0), self.handler)
+        self.server.daemon_threads = False  # server_close joins request handlers.
+        self.server.waiting = threading.Event()
+        self.server.finished = threading.Event()
         self.worker = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.worker.start()
         self.addCleanup(self.close)
@@ -35,6 +47,21 @@ class HTTPIdleTest(unittest.TestCase):
         client = self.connect()
         self.assertEqual(client.recv(1), b'')
         self.errors.assert_not_called()
+
+    def test_browser_reset_of_idle_connection_does_not_escape_request_handler(self):
+        # SO_LINGER with zero timeout sends a reset instead of an orderly EOF,
+        # as can happen when Chromium discards a connection during navigation.
+        with patch.object(self.server, 'handle_error') as uncaught:
+            client = self.connect()
+            self.assertTrue(self.server.waiting.wait(3))
+            linger = struct.pack('hh' if os.name == 'nt' else 'ii', 1, 0)
+            client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, linger)
+            client.close()
+            self.assertTrue(self.server.finished.wait(3))
+            # Wait for the server's exception handler too, if one was entered.
+            self.server.server_close()
+            uncaught.assert_not_called()
+            self.errors.assert_not_called()
 
     def test_successful_keepalive_response_then_idle_closes_quietly_and_new_request_works(self):
         client = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=3)

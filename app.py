@@ -1162,13 +1162,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle(self):
         # Browser keep-alive and speculative connections may send no next
-        # request before our idle limit. Close them quietly, while leaving
-        # header/body/write timeouts to the standard request error handler.
+        # request before our idle limit, or abort it during navigation. Close
+        # them quietly; header/body/write errors keep standard error handling.
         self.close_connection = True
         while True:
             try:
                 ready = self.rfile.peek(1)
-            except TimeoutError:
+            except (TimeoutError, ConnectionAbortedError, ConnectionResetError):
                 self.close_connection = True
                 return
             if not ready:

@@ -2,6 +2,8 @@
 
 - Đóng yên lặng kết nối trình duyệt chưa gửi byte đầu sau 15 giây, gồm
   preconnect và keep-alive; giữ tái sử dụng GET và giới hạn thời gian.
+  Đóng yên lặng cả kết nối bị trình duyệt hủy/reset trong bước chờ, gồm
+  WinError 10053 trên Windows; tránh traceback khi tải lại trang.
   Timeout header/body/ghi phản hồi vẫn được ghi nhận bình thường.
 - Thêm bộ đếm yêu cầu, cảnh báo ở 4.000 ký tự và chặn đoạn dán vượt chỗ
   trống thay vì để trình duyệt tự cắt; giữ bản đang soạn, mở Tài liệu từ
@@ -9,14 +11,15 @@
 - Bổ sung hướng dẫn các vai trò bám tiêu chí có căn cứ, phân biệt đề xuất
   mới với yêu cầu bắt buộc và chưa đo với không đạt. Không thay kết luận
   AI bằng kết quả đạt hoặc tuyên bố đã đo kiểm thật.
-- Thêm 4 ca socket thật và một ca Chromium cho paste/selection/bản nháp.
+- Thêm 5 ca socket thật và một ca Chromium cho paste/selection/bản nháp.
   API 1/schema 2 và thư viện giữ nguyên.
 
 Hướng dẫn: [docs/CAP_NHAT_0_4_1.md](docs/CAP_NHAT_0_4_1.md).
 
-Kiểm chứng cục bộ ngày 23/10/2026: **191 unittest đạt**, gồm 4 ca Docker
-thật; **28 ca Chromium đạt**. Bốn ca socket tái hiện hai log nhàn rỗi trước
-vá và đều đạt sau vá. Chưa đo phản hồi Ollama thật cho hướng dẫn mới; phần
+Kiểm chứng cục bộ ngày 23/10/2026: **192 unittest đạt**, gồm 4 ca Docker
+thật; **28 ca Chromium đạt**. Năm ca socket gồm hai ca tái hiện log nhàn
+rỗi và một ca reset tái hiện lỗi chưa được bắt trước vá; đều đạt sau vá.
+Chưa đo phản hồi Ollama thật cho hướng dẫn mới; phần
 này là điều chỉnh lời nhắc, không bảo đảm mô hình luôn tuân thủ.
 
 # 0.4.0-dev — Danh sách tệp và bằng chứng kiểm tra

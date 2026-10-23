@@ -7,14 +7,17 @@ trong 15 giây, máy chủ đóng kết nối. Trước bản vá, thư viện H
 `Request timed out: TimeoutError('timed out')` ngay cả khi chưa nhận yêu cầu
 mới. Tab nền có thể gửi lại mỗi phút, khiến log 200 xen kẽ timeout.
 
-Bản vá chỉ đóng yên lặng kết nối đang chờ mà chưa nhận byte đầu tiên.
+Bản vá đóng yên lặng kết nối đang chờ mà chưa nhận byte đầu tiên, kể cả
+khi trình duyệt hủy kết nối lúc chuyển trang (Windows có thể báo WinError
+10053). Lỗi ngắt kết nối này không còn in traceback từ bước chờ.
 Giữ giới hạn 15 giây và tái sử dụng kết nối GET. Yêu cầu đã gửi một phần
 header/body hoặc timeout khi xử lý/ghi phản hồi vẫn đi qua bộ xử lý lỗi
 chuẩn; không lọc mọi dòng timeout. Thời hạn gọi Ollama không bị thay đổi.
 
-Có bốn kiểm thử bằng socket thật: chờ kết nối trước yêu cầu, chờ sau phản
-hồi keep-alive, header bị gửi dở, body bị gửi dở. Trước vá hai ca nhàn rỗi
-tái hiện log không mong muốn; sau vá cả bốn đạt.
+Có năm kiểm thử bằng socket thật: chờ kết nối trước yêu cầu, chờ sau phản
+hồi keep-alive, reset kết nối, header bị gửi dở, body bị gửi dở. Trước vá
+hai ca nhàn rỗi tái hiện log không mong muốn; ca reset cũng tái hiện lỗi
+thoát ra bộ xử lý server trước khi bổ sung bản sửa. Sau vá cả năm đạt.
 
 ## Yêu cầu tối đa 4.000 ký tự
 
