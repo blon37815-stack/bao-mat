@@ -77,6 +77,26 @@ class MaintenanceTest(unittest.TestCase):
         finally:
             restored.close()
 
+    def test_database_lifetime_retains_wal_without_blocking_readers_and_closes_it(self):
+        wal = Path(str(app.DB)+'-wal')
+        with app.database_lifetime():
+            app.save_memory('Bản đã lưu')
+            self.assertTrue(wal.exists())
+            identity = wal.stat().st_ino
+            for index in range(3):
+                app.save_memory('Bản đã lưu '+str(index))
+                self.assertEqual(wal.stat().st_ino, identity)
+                self.assertEqual(app.get_memory(), 'Bản đã lưu '+str(index))
+            with app.connect() as writer:
+                writer.execute('BEGIN IMMEDIATE')
+                writer.execute("UPDATE project_memory SET content='Chưa commit' WHERE id=1")
+                # The idle keeper has no read/write transaction; readers see
+                # committed data while the independent writer is in progress.
+                self.assertEqual(app.get_memory(), 'Bản đã lưu 2')
+            self.assertEqual(app.get_memory(), 'Chưa commit')
+        self.assertFalse(wal.exists())
+        self.assertEqual(app.get_memory(), 'Chưa commit')
+
     def test_ollama_health_checks_tags_without_generating(self):
         state = {'names':['qwen3:4b']}
         requests = []

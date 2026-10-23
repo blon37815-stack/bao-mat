@@ -19,6 +19,12 @@ hồi keep-alive, reset kết nối, header bị gửi dở, body bị gửi d�
 hai ca nhàn rỗi tái hiện log không mong muốn; ca reset cũng tái hiện lỗi
 thoát ra bộ xử lý server trước khi bổ sung bản sửa. Sau vá cả năm đạt.
 
+Ứng dụng giữ một kết nối SQLite nhàn rỗi suốt phiên chạy. Mỗi thao tác
+vẫn dùng kết nối riêng, nhưng WAL/SHM không bị xóa rồi tạo lại mỗi khi kết
+nối cuối của một thao tác đóng. Kết nối nền không giữ transaction, không
+giảm mức đồng bộ SQLite; đóng khi app dừng. Kiểm thử xác nhận đọc được dữ
+liệu đã commit khi có writer khác và dữ liệu còn sau khi đóng phiên.
+
 ## Yêu cầu tối đa 4.000 ký tự
 
 Ô yêu cầu có bộ đếm và cảnh báo khi chạm giới hạn, kể cả bản nháp được

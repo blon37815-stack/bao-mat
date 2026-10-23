@@ -29,6 +29,12 @@ async function moreActions(card) {
 test.beforeEach(async ({page}) => {
   page.on('dialog', dialog => dialog.accept());
   await post(page, '/api/queue', {paused:false});
+  // Shared fixture policies are edited by later cases. Wait for an earlier
+  // run to finish before changing a bot's live permissions or model bindings.
+  await expect.poll(async()=>{
+    const state=await (await page.request.get('/api/resources')).json();
+    return state.queue.waiting===0 && state.active.length===0;
+  },taskCompletion).toBe(true);
   await page.goto('/');
   await expect(page.locator('#toggle-queue')).toBeEnabled();
   await expect(page.locator('#app-version')).toContainText('commit');
@@ -521,7 +527,7 @@ test('bot capability controls enforce a denial and show a content-free audit tra
   await page.locator('#close-bot').click();
   try {
     const task = await post(page,'/api/tasks',{prompt:'Kiểm thử sinh từng tệp trên trình duyệt',mode:'ollama',expert:'none'});
-    await expect.poll(async()=> (await (await page.request.get('/api/tasks/'+task.id)).json()).status).toBe('needs_review');
+    await expect.poll(async()=> (await (await page.request.get('/api/tasks/'+task.id)).json()).status,taskCompletion).toBe('needs_review');
     await page.evaluate(id=>window.WorkspaceUI.openTask(id),task.id);
     await expect(page.locator('#inspector-body')).toBeVisible();
     await page.locator('#run-workspace > summary').click();

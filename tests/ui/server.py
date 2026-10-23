@@ -1,5 +1,6 @@
 """Ephemeral application instance used by browser integration tests."""
 from pathlib import Path
+from contextlib import ExitStack
 import os
 import json
 import sys
@@ -33,8 +34,9 @@ def fixture_ollama(messages):
 
 app.ollama_reply=fixture_ollama
 
-with tempfile.TemporaryDirectory(prefix='bao-mat-ui-') as temporary:
+with tempfile.TemporaryDirectory(prefix='bao-mat-ui-') as temporary, ExitStack() as lifetime:
     app.DB = Path(temporary)/'tasks.sqlite3'
+    lifetime.enter_context(app.database_lifetime())
     app.recover()
     app.configure_queue()
     # Old data exists only in this disposable test instance, never in the app.

@@ -13,10 +13,14 @@
   AI bằng kết quả đạt hoặc tuyên bố đã đo kiểm thật.
 - Thêm 5 ca socket thật và một ca Chromium cho paste/selection/bản nháp.
   API 1/schema 2 và thư viện giữ nguyên.
+- Giữ một kết nối SQLite nhàn rỗi suốt phiên app để tránh tạo/xóa WAL/SHM
+  giữa các thao tác ngắn; giữ kết nối riêng cho từng request/worker và mức
+  đồng bộ hiện tại. Kiểm thử UI cũng chờ hàng đợi rỗng trước khi đổi quyền
+  hoặc model của ca tiếp theo, tránh một công việc ảnh hưởng ca kế tiếp.
 
 Hướng dẫn: [docs/CAP_NHAT_0_4_1.md](docs/CAP_NHAT_0_4_1.md).
 
-Kiểm chứng cục bộ ngày 23/10/2026: **192 unittest đạt**, gồm 4 ca Docker
+Kiểm chứng cục bộ ngày 23/10/2026: **193 unittest đạt**, gồm 4 ca Docker
 thật; **28 ca Chromium đạt**. Năm ca socket gồm hai ca tái hiện log nhàn
 rỗi và một ca reset tái hiện lỗi chưa được bắt trước vá; đều đạt sau vá.
 Ca socket chờ luồng xử lý xong trước khi kiểm tra, không đóng listener

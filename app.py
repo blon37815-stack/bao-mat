@@ -11,6 +11,7 @@ import urllib.request
 import urllib.parse
 import difflib
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -144,6 +145,21 @@ def connect():
     workspace_data.initialize(db)
     db.commit()
     return db
+
+
+@contextmanager
+def database_lifetime():
+    """Keep WAL files open between operations without holding a transaction.
+
+    Each worker/request still owns its connection. Closing SQLite's last
+    connection checkpoints and removes WAL/SHM, so repeated short operations
+    otherwise recreate these files (particularly costly on Windows).
+    """
+    keeper = connect()
+    try:
+        yield
+    finally:
+        keeper.close()
 
 
 def get_policy(db=None):
@@ -1602,7 +1618,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     try:
-        with application_lock(DB):
+        with application_lock(DB), database_lifetime():
             recover()
             configure_queue()
             server = ThreadingHTTPServer(('127.0.0.1', int(os.environ.get('PORT','8000'))), Handler)
